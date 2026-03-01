@@ -7,8 +7,7 @@ import threading
 import asyncio
 from datetime import datetime
 from collections import deque
-from binance.client import Client
-from binance.streams import ThreadedWebsocketManager
+from binance import Client, ThreadedWebsocketManager
 from binance.exceptions import BinanceAPIException
 from translations_py import TRANSLATIONS
 
