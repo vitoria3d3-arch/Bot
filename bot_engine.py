@@ -119,17 +119,13 @@ class BinanceTradingBotEngine:
         for i, acc in enumerate(api_accounts):
             if acc.get('api_key') and acc.get('api_secret') and acc.get('enabled', True):
                 try:
-                    # Check if we already have a client for this key
-                    existing = self.bg_clients.get(i)
-                    if existing and existing['info']['api_key'] == acc['api_key']:
-                        new_bg_clients[i] = existing
-                    else:
-                        client = self._get_client(acc['api_key'], acc['api_secret'])
-                        new_bg_clients[i] = {
-                            'client': client,
-                            'name': acc.get('name', f"Account {i+1}"),
-                            'info': acc
-                        }
+                    # Always re-create client to ensure correct environment (Demo vs Live)
+                    client = self._get_client(acc['api_key'], acc['api_secret'])
+                    new_bg_clients[i] = {
+                        'client': client,
+                        'name': acc.get('name', f"Account {i+1}"),
+                        'info': acc
+                    }
                 except Exception as e:
                     logging.error(f"Failed to init bg client for {acc.get('name')}: {e}")
         self.bg_clients = new_bg_clients
@@ -586,7 +582,12 @@ class BinanceTradingBotEngine:
     def apply_live_config_update(self, new_config):
         self.config = new_config
         self.language = self.config.get('language', 'pt-BR')
+        
+        # Immediate refresh of background states
+        self.account_balances = {} # Clear stale balances
         self._initialize_bg_clients()
+        self.metadata_client = self._get_metadata_client()
+        self._emit_account_update()
         
         if self.is_running:
             strategy = self.config.get('strategy', {})
