@@ -1,0 +1,53 @@
+{
+  "api_accounts": [
+    {
+      "name": "User 1",
+      "enabled": true,
+      "api_key": "Fev9LPoUn9rEmyrnGMRwgevxsIyaaSyDI5ZE0dHzNKoDUu1OSlUimvfLIwUPmZQQ",
+      "api_secret": "cT6iFvD21S6GyeI2x6ZM0KOS9D6SwXg3R6ZcJ8kdSC5d7dj3AzHORGVHrDPFOK9K"
+    },
+    {
+      "name": "User 2",
+      "enabled": false,
+      "api_key": "",
+      "api_secret": ""
+    },
+    {
+      "name": "User 3",
+      "enabled": false,
+      "api_key": "",
+      "api_secret": ""
+    }
+  ],
+  "is_demo": true,
+  "language": "en-US",
+  "log_level": "INFO",
+  "symbol_strategies": {
+    "BTCUSDC": {
+      "direction": "LONG",
+      "entry_price": 67430,
+      "leverage": 20,
+      "margin_type": "CROSSED",
+      "price_deviation": 0.6,
+      "total_fractions": 8,
+      "trade_amount_usdc": 100,
+      "trailing_deviation": 0,
+      "trailing_enabled": true
+    },
+    "LINKUSDC": {
+      "direction": "LONG",
+      "entry_price": 9.07,
+      "leverage": 100,
+      "margin_type": "CROSSED",
+      "price_deviation": 0.6,
+      "total_fractions": 8,
+      "trade_amount_usdc": 1,
+      "trailing_deviation": 0,
+      "trailing_enabled": true
+    }
+  },
+  "symbols": [
+    "LINKUSDC",
+    "BTCUSDC"
+  ]
+}
