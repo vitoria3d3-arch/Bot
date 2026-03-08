@@ -7,7 +7,8 @@ import threading
 import asyncio
 from datetime import datetime
 from collections import deque
-from binance import Client, ThreadedWebsocketManager
+from binance.client import Client
+from binance.streams import ThreadedWebsocketManager
 from binance.exceptions import BinanceAPIException
 from translations_py import TRANSLATIONS
 
@@ -43,8 +44,9 @@ class BinanceTradingBotEngine:
         # Dashboard metrics
         self.account_balances = {} # account_index -> balance
         self.open_positions = {} # account_index -> [positions]
-        # Trailing TP state: (account_index, symbol) -> { 'highest_pnl': float, 'last_update': float }
+        # Trailing TP/SL/Buy state
         self.trailing_state = {}
+        self.last_log_times = {} # key -> timestamp
         
         self.data_lock = threading.Lock()
         
@@ -85,24 +87,48 @@ class BinanceTradingBotEngine:
             return template
 
     def log(self, message_or_key, level='info', account_name=None, is_key=False, **kwargs):
-        if is_key:
-            message = self._t(message_or_key, **kwargs)
-        else:
-            message = message_or_key
-            
+        # We store structured logs now to allow re-translation
         timestamp = datetime.now().strftime('%H:%M:%S')
-        prefix = f"[{account_name}] " if account_name else ""
-        log_entry = {'timestamp': timestamp, 'message': f"{prefix}{message}", 'level': level}
+
+        log_entry = {
+            'timestamp': timestamp,
+            'level': level,
+            'account_name': account_name,
+            'key': message_or_key if is_key else None,
+            'message': message_or_key if not is_key else None,
+            'kwargs': kwargs
+        }
+
+        # Add a rendered version for the immediate display
+        rendered_msg = self._render_log(log_entry)
+        log_entry['rendered'] = rendered_msg
+
         self.console_logs.append(log_entry)
         self.emit('console_log', log_entry)
-        if level == 'error': logging.error(f"{prefix}{message}")
-        elif level == 'warning': logging.warning(f"{prefix}{message}")
-        else: logging.info(f"{prefix}{message}")
+
+        if level == 'error': logging.error(rendered_msg)
+        elif level == 'warning': logging.warning(rendered_msg)
+        else: logging.info(rendered_msg)
+
+    def _render_log(self, entry):
+        account_name = entry.get('account_name')
+        prefix = f"[{account_name}] " if account_name else ""
+
+        if entry.get('key'):
+            message = self._t(entry['key'], **entry.get('kwargs', {}))
+        else:
+            message = entry.get('message', '')
+
+        return f"{prefix}{message}"
 
     def _create_client(self, api_key, api_secret):
         testnet = self.config.get('is_demo', True)
-        client = Client(api_key, api_secret, testnet=testnet, requests_params={'timeout': 20})
+        # Enable automatic time synchronization and trim keys
+        client = Client(api_key.strip(), api_secret.strip(), testnet=testnet, requests_params={'timeout': 20})
+        # Set base URL for futures explicitly
+        client.API_URL = 'https://fapi.binance.com/fapi' if not testnet else 'https://testnet.binancefuture.com/fapi'
         try:
+            # Sync time with server to avoid 'Timestamp for this request is outside of the recvWindow'
             res = client.get_server_time()
             client.timestamp_offset = res['serverTime'] - int(time.time() * 1000)
         except Exception as e:
@@ -113,14 +139,38 @@ class BinanceTradingBotEngine:
         return self._create_client(api_key, api_secret)
 
     def _initialize_bg_clients(self):
-        """Initializes clients for all enabled accounts to fetch balances in background."""
+        """Initializes clients for all accounts with keys to fetch balances in background."""
         api_accounts = self.config.get('api_accounts', [])
-        new_bg_clients = {}
+
+        # Cleanup existing background clients if they are no longer in the config or keys changed
+        old_bg_idxs = list(self.bg_clients.keys())
+        for idx in old_bg_idxs:
+            if idx >= len(api_accounts):
+                del self.bg_clients[idx]
+                continue
+
+            acc = api_accounts[idx]
+            old_bg = self.bg_clients[idx]
+            if (acc.get('api_key', '').strip() != old_bg['info'].get('api_key', '').strip() or
+                acc.get('api_secret', '').strip() != old_bg['info'].get('api_secret', '').strip()):
+                del self.bg_clients[idx]
+
+        new_bg_clients = self.bg_clients.copy()
+        testnet = self.config.get('is_demo', True)
+        mode_str = "DEMO (Testnet)" if testnet else "LIVE (Mainnet)"
+
         for i, acc in enumerate(api_accounts):
-            if acc.get('api_key') and acc.get('api_secret') and acc.get('enabled', True):
+            if i in new_bg_clients:
+                continue # Already have a valid one
+
+            api_key = acc.get('api_key', '').strip()
+            api_secret = acc.get('api_secret', '').strip()
+            # We initialize background clients for ALL accounts that have keys,
+            # so we can show their balance even if they are not enabled for trading.
+            if api_key and api_secret:
                 try:
                     # Always re-create client to ensure correct environment (Demo vs Live)
-                    client = self._get_client(acc['api_key'], acc['api_secret'])
+                    client = self._get_client(api_key, api_secret)
                     new_bg_clients[i] = {
                         'client': client,
                         'name': acc.get('name', f"Account {i+1}"),
@@ -128,27 +178,57 @@ class BinanceTradingBotEngine:
                     }
                 except Exception as e:
                     logging.error(f"Failed to init bg client for {acc.get('name')}: {e}")
+
         self.bg_clients = new_bg_clients
+        logging.info(f"Initialized {len(new_bg_clients)} background clients in {mode_str} mode.")
 
     def _get_metadata_client(self):
         """Creates a client for fetching prices/leverage even when bot is stopped."""
         try:
             testnet = self.config.get('is_demo', True)
             accs = self.config.get('api_accounts', [])
-            if accs:
-                # Use first account's keys even if disabled, or public if possible
-                return self._create_client(accs[0]['api_key'], accs[0]['api_secret'])
+            # Try to find an account with keys
+            for acc in accs:
+                if acc.get('api_key') and acc.get('api_secret'):
+                    return self._create_client(acc['api_key'], acc['api_secret'])
             return self._create_client("", "")
         except:
             return None
 
-    def test_account(self, api_key, api_secret):
+    @staticmethod
+    def test_account(api_key, api_secret, is_demo=True):
         try:
-            client = self._get_client(api_key, api_secret)
+            client = Client(api_key.strip(), api_secret.strip(), testnet=is_demo, requests_params={'timeout': 20})
             client.futures_account_balance()
             return True, "Connection successful"
         except Exception as e:
             return False, str(e)
+
+    def _init_account(self, i, acc):
+        try:
+            api_key = acc.get('api_key', '').strip()
+            api_secret = acc.get('api_secret', '').strip()
+            client = self._get_client(api_key, api_secret)
+            twm = ThreadedWebsocketManager(api_key=api_key, api_secret=api_secret, testnet=self.config.get('is_demo', True))
+            twm.start()
+
+            self.accounts[i] = {
+                'client': client,
+                'twm': twm,
+                'info': acc,
+                'last_update': 0
+            }
+
+            # Start user data stream
+            twm.start_futures_user_socket(callback=lambda msg, idx=i: self._handle_user_data(idx, msg))
+
+            # Initialize strategy for each symbol in its own thread
+            for symbol in self.config.get('symbols', []):
+                self._start_symbol_thread(i, symbol)
+
+            self.log("account_init", account_name=acc.get('name'), is_key=True, name=acc.get('name', i))
+        except Exception as e:
+            self.log("account_init_failed", level='error', is_key=True, name=acc.get('name', i), error=str(e))
 
     def start(self):
         if self.is_running: return
@@ -161,29 +241,7 @@ class BinanceTradingBotEngine:
         api_accounts = self.config.get('api_accounts', [])
         for i, acc in enumerate(api_accounts):
             if acc.get('api_key') and acc.get('api_secret') and acc.get('enabled', True):
-                try:
-                    client = self._get_client(acc['api_key'], acc['api_secret'])
-                    twm = ThreadedWebsocketManager(api_key=acc['api_key'], api_secret=acc['api_secret'], testnet=self.config.get('is_demo', True))
-                    twm.start()
-
-                    self.accounts[i] = {
-                        'client': client,
-                        'twm': twm,
-                        'info': acc,
-                        'last_update': 0
-                    }
-
-                    # Start user data stream
-                    twm.start_futures_user_socket(callback=lambda msg, idx=i: self._handle_user_data(idx, msg))
-                    
-                    # Initialize strategy for each symbol in its own thread
-                    for symbol in self.config.get('symbols', []):
-                        self._start_symbol_thread(i, symbol)
-                    
-                    self.log("account_init", account_name=acc.get('name'), is_key=True, name=acc.get('name', i))
-
-                except Exception as e:
-                    self.log("account_init_failed", level='error', is_key=True, name=acc.get('name', i), error=str(e))
+                self._init_account(i, acc)
 
     def stop(self):
         self.is_running = False
@@ -197,6 +255,8 @@ class BinanceTradingBotEngine:
         self.log("bot_stopped", is_key=True)
 
     def _setup_strategy_for_account(self, idx, symbol):
+        if idx not in self.accounts:
+            return
         acc = self.accounts[idx]
         client = acc['client']
         symbol_strategies = self.config.get('symbol_strategies', {})
@@ -240,53 +300,128 @@ class BinanceTradingBotEngine:
             self.log("strategy_setup_error", level='error', account_name=acc['info'].get('name'), is_key=True, error=str(e))
 
     def _check_and_place_initial_entry(self, idx, symbol):
+        if idx not in self.accounts: return
         acc = self.accounts[idx]
         client = acc['client']
         symbol_strategies = self.config.get('symbol_strategies', {})
         strategy = symbol_strategies.get(symbol, {})
         direction = strategy.get('direction', 'LONG')
         
-        trade_amount_usdc = float(strategy.get('trade_amount_usdc', 0))
+        trade_amount_val = float(strategy.get('trade_amount_usdc', 0))
         leverage = int(strategy.get('leverage', 20))
+        is_pct = strategy.get('trade_amount_is_pct', False)
         
         with self.market_data_lock:
             current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
         
         if current_price <= 0: return
         
-        # Calculate quantity based on USDC amount and leverage
-        quantity = (trade_amount_usdc * leverage) / current_price
+        # Calculate quantity for new entry
+        balance = self.account_balances.get(idx, 0.0)
+        if is_pct:
+            quantity = (balance * (trade_amount_val / 100.0) * leverage) / current_price
+        else:
+            quantity = (trade_amount_val * leverage) / current_price
         entry_price = float(strategy.get('entry_price', 0))
 
-        if quantity <= 0 or entry_price <= 0: return
-
         # "Use Existing Assets" logic
-        use_existing = strategy.get('use_existing_assets', True)
+        use_existing = strategy.get('use_existing', True)
         pos = client.futures_position_information(symbol=symbol)
-        has_pos = any(float(p['positionAmt']) != 0 for p in pos if p['symbol'] == symbol)
+        p_info = next((p for p in pos if p['symbol'] == symbol and float(p['positionAmt']) != 0), None)
+        has_pos = p_info is not None
 
         if use_existing and has_pos:
-            self.log("pos_exists_skip", account_name=acc['info'].get('name'), is_key=True, symbol=symbol)
             # Force grid placement if not already placed
             with self.data_lock:
                 if (idx, symbol) not in self.grid_state:
+                    self.log("pos_exists_skip", account_name=acc['info'].get('name'), is_key=True, symbol=symbol)
                     self.grid_state[(idx, symbol)] = {'initial_filled': True, 'levels': {}}
+                    state = self.grid_state[(idx, symbol)]
                     # Only place TP grid if tp_enabled
                     if strategy.get('tp_enabled', True):
-                        current_price = float(pos[0]['entryPrice']) if float(pos[0]['entryPrice']) > 0 else entry_price
-                        total_fractions = int(strategy.get('total_fractions', 8))
-                        price_deviation = float(strategy.get('price_deviation', 0.6)) / 100.0
-                        fraction_qty = quantity / total_fractions
-                        self._place_tp_grid(idx, symbol, current_price, total_fractions, fraction_qty, price_deviation, direction)
+                        entry_p = float(p_info['entryPrice']) if float(p_info['entryPrice']) > 0 else current_price
+                        state['avg_entry_price'] = entry_p
+                        pos_qty = abs(float(p_info['positionAmt']))
+                        actual_direction = 'LONG' if float(p_info['positionAmt']) > 0 else 'SHORT'
+
+                        tp_targets = strategy.get('tp_targets', [])
+                        if not tp_targets:
+                            total_f = int(strategy.get('total_fractions', 8))
+                            dev = float(strategy.get('price_deviation', 0.6))
+                            tp_targets = [
+                                {'percent': (i + 1) * dev, 'volume': 100.0 / total_f}
+                                for i in range(total_f)
+                            ]
+
+                        self._setup_tp_targets(idx, symbol, entry_p, tp_targets, pos_qty, actual_direction)
             return
+
+        if quantity <= 0 or entry_price <= 0: return
 
         # Check if we have open orders
         orders = client.futures_get_open_orders(symbol=symbol)
         
-        if not has_pos and not orders:
-            self.log("placing_initial", account_name=acc['info'].get('name'), is_key=True, direction=direction, price=entry_price)
-            side = Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL
+        if not has_pos:
+            if orders:
+                # Synchronization: check if order price matches config price
+                # Only check for LIMIT entries
+                entry_type = strategy.get('entry_type', 'LIMIT')
+                if entry_type == 'LIMIT':
+                    for o in orders:
+                        if o['type'] == 'LIMIT' and o['side'] == (Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL):
+                            order_price = float(o['price'])
+                            # If price differs significantly or is just different, cancel it
+                            if abs(order_price - entry_price) > 0.00000001:
+                                self.log("price_mismatch_cancel", account_name=acc['info'].get('name'), is_key=True, symbol=symbol, old=order_price, new=entry_price)
+                                client.futures_cancel_order(symbol=symbol, orderId=o['orderId'])
+                                with self.data_lock:
+                                    if (idx, symbol) in self.grid_state:
+                                        del self.grid_state[(idx, symbol)]
+                                return # Next loop will re-place
+                return
 
+            side = Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL
+            entry_type = strategy.get('entry_type', 'LIMIT')
+            
+            if entry_type == 'MARKET':
+                self.log("placing_market_initial", account_name=acc['info'].get('name'), is_key=True, direction=direction)
+                self._execute_market_entry(idx, symbol)
+                return
+
+            if entry_type in ['CONDITIONAL', 'COND_LIMIT', 'COND_MARKET']:
+                self.log("conditional_active", account_name=acc['info'].get('name'), is_key=True, symbol=symbol, trigger_price=entry_price)
+                with self.data_lock:
+                    self.grid_state[(idx, symbol)] = {
+                        'conditional_active': True,
+                        'conditional_type': entry_type,
+                        'trigger_price': entry_price,
+                        'initial_filled': False,
+                        'levels': {}
+                    }
+                return
+
+            if strategy.get('trailing_buy_enabled', False):
+                self.log("trailing_buy_starting", account_name=acc['info'].get('name'), is_key=True, direction=direction, target_price=entry_price)
+                with self.data_lock:
+                    self.grid_state[(idx, symbol)] = {
+                        'trailing_buy_active': True,
+                        'trailing_buy_target': entry_price,
+                        'trailing_buy_peak': 0, # Best price reached
+                        'initial_filled': False,
+                        'levels': {}
+                    }
+                return
+
+            # Check balance before logging "placing_initial" to avoid log spam if empty
+            if not self._check_balance_for_order(idx, quantity, entry_price):
+                log_key = f"insufficient_balance_{idx}_{symbol}"
+                now = time.time()
+                if now - self.last_log_times.get(log_key, 0) > 60:
+                    self.log("insufficient_balance", level='warning', account_name=acc['info'].get('name'), is_key=True, qty=quantity, price=entry_price)
+                    self.last_log_times[log_key] = now
+                return
+
+            self.log("placing_initial", account_name=acc['info'].get('name'), is_key=True, direction=direction, price=entry_price)
             try:
                 order_id = self._place_limit_order(idx, symbol, side, quantity, entry_price)
 
@@ -295,9 +430,8 @@ class BinanceTradingBotEngine:
                         self.grid_state[(idx, symbol)] = {
                             'initial_order_id': order_id,
                             'initial_filled': False,
-                            'levels': {} # level -> { 'tp_order_id': id, 'buy_back_order_id': id }
+                            'levels': {}
                         }
-
             except Exception as e:
                 self.log("initial_failed", level='error', account_name=acc['info'].get('name'), is_key=True, error=str(e))
 
@@ -345,6 +479,9 @@ class BinanceTradingBotEngine:
         return format(result.normalize(), 'f')
 
     def _handle_user_data(self, idx, msg):
+        if not self.is_running or idx not in self.accounts:
+            return
+            
         event_type = msg.get('e')
         acc_name = self.accounts[idx]['info'].get('name')
 
@@ -381,14 +518,12 @@ class BinanceTradingBotEngine:
         total_fractions = int(strategy.get('total_fractions', 8))
         price_deviation = float(strategy.get('price_deviation', 0.6)) / 100.0
         
-        trade_amount_usdc = float(strategy.get('trade_amount_usdc', 0))
-        leverage = int(strategy.get('leverage', 20))
-        
-        # We need the price when the initial entry filled to calculate quantity if we haven't already
+        # Calculate total_qty based on actual fill
         avg_price = float(order_data.get('ap', 0))
-        if avg_price <= 0: return
+        filled_qty = float(order_data.get('z', 0))
+        if avg_price <= 0 or filled_qty <= 0: return
         
-        total_qty = (trade_amount_usdc * leverage) / avg_price
+        total_qty = filled_qty
         fraction_qty = total_qty / total_fractions
         entry_price_base = float(strategy.get('entry_price', 0))
 
@@ -399,56 +534,134 @@ class BinanceTradingBotEngine:
             # 1. Initial Entry Filled
             if not state.get('initial_filled') and order_id == state.get('initial_order_id'):
                 state['initial_filled'] = True
-                avg_price = float(order_data.get('ap'))
+                state['avg_entry_price'] = avg_price
+                state['tp_triggered'] = False 
+                state['pending_reentry_qty'] = 0.0
                 self.log("initial_filled_grid", account_name=self.accounts[idx]['info'].get('name'), is_key=True, price=avg_price)
-                # Only place TP grid if tp_enabled
+                
                 if strategy.get('tp_enabled', True):
-                    self._place_tp_grid(idx, symbol, avg_price, total_fractions, fraction_qty, price_deviation, direction)
+                    tp_targets = strategy.get('tp_targets', [])
+                    if not tp_targets:
+                        # Fallback to default ladder (8 steps, 0.6% deviation as per client request)
+                        total_f = int(strategy.get('total_fractions', 8))
+                        dev = float(strategy.get('price_deviation', 0.6))
+                        tp_targets = [
+                            {'percent': (i + 1) * dev, 'volume': 100.0 / total_f}
+                            for i in range(total_f)
+                        ]
+                        self.log(f"Using default {total_f}-step TP ladder for {symbol}", 'info')
+                    
+                    self._setup_tp_targets(idx, symbol, avg_price, tp_targets, total_qty, direction)
                 return
 
-            # 2. Check levels for TP or Re-entry fills
-            for level, orders in state['levels'].items():
-                if order_id == orders.get('tp_order_id'):
-                    self.log("tp_filled_reentry", account_name=self.accounts[idx]['info'].get('name'), is_key=True, level=level)
-                    # If TP filled (e.g., Sell in LONG), we place a Buy order at the previous price level
-                    rb_price = entry_price_base + (level - 1) * entry_price_base * price_deviation if direction == 'LONG' else \
-                               entry_price_base - (level - 1) * entry_price_base * price_deviation
+            # 2. Check levels for TP fills
+            for level, lvl_data in state['levels'].items():
+                if lvl_data.get('tp_order_id') and order_id == lvl_data.get('tp_order_id'):
+                    qty_filled = lvl_data.get('qty', fraction_qty)
+                    self.log("tp_filled_manual", account_name=self.accounts[idx]['info'].get('name'), is_key=True, level=level, qty=qty_filled)
+                    lvl_data['filled'] = True
+                    lvl_data['tp_order_id'] = None # Clear filled ID
                     
-                    rb_side = Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL
-                    rb_id = self._place_limit_order(idx, symbol, rb_side, fraction_qty, rb_price)
-                    orders['re_entry_order_id'] = rb_id
-                    orders['tp_order_id'] = None
+                    self._handle_reentry_logic(idx, symbol, qty_filled)
                     return
 
-                if order_id == orders.get('re_entry_order_id'):
-                    self.log("reentry_filled_tp", account_name=self.accounts[idx]['info'].get('name'), is_key=True, level=level)
-                    # If Re-entry filled (e.g., Buy in LONG), we place the TP order back at this level
-                    tp_price = entry_price_base + level * entry_price_base * price_deviation if direction == 'LONG' else \
-                               entry_price_base - level * entry_price_base * price_deviation
-                    
-                    tp_side = Client.SIDE_SELL if direction == 'LONG' else Client.SIDE_BUY
-                    tp_id = self._place_limit_order(idx, symbol, tp_side, fraction_qty, tp_price)
-                    orders['tp_order_id'] = tp_id
-                    orders['re_entry_order_id'] = None
-                    return
+            # 3. Handle Re-entry Fill (Consolidated)
+            if strategy.get('consolidated_reentry', True) and order_id == state.get('consolidated_reentry_id'):
+                self.log("reentry_filled_tp_all", account_name=self.accounts[idx]['info'].get('name'), is_key=True)
+                state['consolidated_reentry_id'] = None
+                state['pending_reentry_qty'] = 0.0 # Reset pool
+                
+                # Update average entry price
+                avg_price_fill = float(order_data.get('ap', 0))
+                if avg_price_fill > 0:
+                    state['avg_entry_price'] = avg_price_fill
+                
+                anchor = state.get('avg_entry_price', entry_price_base)
+                # Re-place TPs that were filled
+                for l, o in state['levels'].items():
+                    if o.get('tp_order_id') is None and not o.get('is_market') and not o.get('trailing_eligible'):
+                        pct = o.get('percent', 0)
+                        tp_price = anchor * (1 + pct) if direction == 'LONG' else anchor * (1 - pct)
 
-    def _place_tp_grid(self, idx, symbol, entry_price, fractions, qty, deviation, direction):
+                        # Update stored price
+                        o['price'] = tp_price
+
+                        level_qty = o.get('qty', fraction_qty)
+                        tp_id = self._place_limit_order(idx, symbol, Client.SIDE_SELL if direction == 'LONG' else Client.SIDE_BUY, level_qty, tp_price)
+                        o['tp_order_id'] = tp_id
+                        o['filled'] = False
+                return
+
+    def _handle_reentry_logic(self, idx, symbol, qty_filled):
+        """Handles the logic for placing/updating re-entry orders after a TP fill."""
+        strategy = self.config.get('symbol_strategies', {}).get(symbol, {})
+        direction = strategy.get('direction', 'LONG')
+        entry_price_base = float(strategy.get('entry_price', 0))
+
+        with self.data_lock:
+            state = self.grid_state.get((idx, symbol))
+            if not state: return
+
+            if strategy.get('consolidated_reentry', True):
+                pending = state.get('pending_reentry_qty', 0.0)
+                pending += qty_filled
+                state['pending_reentry_qty'] = pending
+
+                client = self.accounts[idx]['client']
+                # Cancel existing re-entry order
+                old_re_id = state.get('consolidated_reentry_id')
+                if old_re_id:
+                    try: client.futures_cancel_order(symbol=symbol, orderId=old_re_id)
+                    except: pass
+
+                # Place new consolidated re-entry at the original Entry Price
+                anchor = state.get('avg_entry_price', entry_price_base)
+                re_side = Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL
+                if self._check_balance_for_order(idx, pending, anchor):
+                    new_re_id = self._place_limit_order(idx, symbol, re_side, pending, anchor)
+                    state['consolidated_reentry_id'] = new_re_id
+                    self.log("reentry_updated", account_name=self.accounts[idx]['info'].get('name'), is_key=True, qty=pending, price=anchor)
+
+    def _setup_tp_targets(self, idx, symbol, entry_price, targets, total_qty, direction):
         state = self.grid_state.get((idx, symbol))
         if not state: return
         
-        for i in range(1, fractions + 1):
+        strategy = self.config.get('symbol_strategies', {}).get(symbol, {})
+        tp_market_mode = strategy.get('tp_market_mode', False)
+        
+        state['levels'] = {} # Reset levels for new targets
+        
+        for i, target in enumerate(targets, 1):
+            pct = float(target.get('percent', 0)) / 100.0
+            volume_pct = float(target.get('volume', 0)) / 100.0
+            qty = total_qty * volume_pct
+            
             if direction == 'LONG':
-                tp_price = entry_price + (i * entry_price * deviation)
+                tp_price = entry_price * (1 + pct)
                 side = Client.SIDE_SELL
             else:
-                tp_price = entry_price - (i * entry_price * deviation)
+                tp_price = entry_price * (1 - pct)
                 side = Client.SIDE_BUY
 
-            order_id = self._place_limit_order(idx, symbol, side, qty, tp_price)
+            # Only the LAST target can have trailing if enabled
+            is_last = (i == len(targets))
+            trailing_eligible = is_last and strategy.get('trailing_tp_enabled', False)
+
+            if tp_market_mode or trailing_eligible:
+                order_id = None
+            else:
+                order_id = self._place_limit_order(idx, symbol, side, qty, tp_price)
+
             state['levels'][i] = {
                 'tp_order_id': order_id,
                 're_entry_order_id': None,
-                'price': tp_price
+                'price': tp_price,
+                'percent': pct,
+                'qty': qty,
+                'side': side,
+                'is_market': tp_market_mode,
+                'trailing_eligible': trailing_eligible,
+                'filled': False
             }
 
     def _check_balance_for_order(self, idx, qty, price):
@@ -463,7 +676,11 @@ class BinanceTradingBotEngine:
 
         # Validate balance before placing re-buy/re-sell orders
         if not self._check_balance_for_order(idx, qty, price):
-            self.log("insufficient_balance", level='warning', account_name=self.accounts[idx]['info'].get('name'), is_key=True, qty=qty, price=price)
+            log_key = f"insufficient_balance_{idx}_{symbol}"
+            now = time.time()
+            if now - self.last_log_times.get(log_key, 0) > 60: # Log at most once per minute per symbol
+                self.log("insufficient_balance", level='warning', account_name=self.accounts[idx]['info'].get('name'), is_key=True, qty=qty, price=price)
+                self.last_log_times[log_key] = now
             return None
 
         try:
@@ -521,7 +738,7 @@ class BinanceTradingBotEngine:
             logging.error(f"Error updating metrics for account {idx}: {e}")
 
     def _update_bg_account_metrics(self, idx):
-        """Updates balance for background accounts (non-trading)."""
+        """Updates balance and positions for background accounts (non-trading)."""
         acc = self.bg_clients.get(idx)
         if not acc: return
         client = acc['client']
@@ -534,6 +751,18 @@ class BinanceTradingBotEngine:
                     usdc_balance = float(asset['walletBalance'])
                     break
             self.account_balances[idx] = usdc_balance
+
+            positions = []
+            for p in account_info['positions']:
+                if float(p['positionAmt']) != 0:
+                    positions.append({
+                        'symbol': p['symbol'],
+                        'amount': p['positionAmt'],
+                        'entryPrice': p['entryPrice'],
+                        'unrealizedProfit': p['unrealizedProfit'],
+                        'leverage': p['leverage']
+                    })
+            self.open_positions[idx] = positions
         except Exception as e:
             # logging.error(f"Error updating bg metrics for account {idx}: {e}")
             pass
@@ -542,25 +771,31 @@ class BinanceTradingBotEngine:
         total_balance = sum(self.account_balances.values())
         total_pnl = 0.0
         
-        # Flatten positions for UI — all positions are shown, manual ones flagged
         all_positions = []
         manual_positions = []
         
-        for idx, pos_list in self.open_positions.items():
-            acc_name = self.accounts[idx]['info'].get('name')
+        # Use a copy of indices to avoid thread issues
+        all_idxs = set(list(self.account_balances.keys()) + list(self.open_positions.keys()))
+
+        for idx in all_idxs:
+            pos_list = self.open_positions.get(idx, [])
+            api_accounts = self.config.get('api_accounts', [])
+            acc_name = api_accounts[idx].get('name', f"Account {idx+1}") if idx < len(api_accounts) else f"Account {idx+1}"
+
             for p in pos_list:
-                p['account'] = acc_name
-                total_pnl += float(p['unrealizedProfit'])
+                p_copy = p.copy()
+                p_copy['account'] = acc_name
+                p_copy['account_idx'] = idx
+                total_pnl += float(p_copy.get('unrealizedProfit', 0))
                 
-                # Tag as manual if not tracked in grid_state
-                symbol = p['symbol']
+                symbol = p_copy['symbol']
                 with self.data_lock:
                     state = self.grid_state.get((idx, symbol))
-                p['is_manual'] = (state is None)
+                p_copy['is_manual'] = (state is None)
                 
-                all_positions.append(p)
-                if p['is_manual']:
-                    manual_positions.append(p)
+                all_positions.append(p_copy)
+                if p_copy['is_manual']:
+                    manual_positions.append(p_copy)
 
         payload = {
             'total_balance': total_balance,
@@ -570,71 +805,205 @@ class BinanceTradingBotEngine:
             'manual_positions': manual_positions,
             'running': self.is_running,
             'accounts': [
-                {
-                    'name': self.bg_clients[idx]['name'],
-                    'balance': self.account_balances.get(idx, 0.0),
-                    'active': idx in self.accounts
-                } for idx in self.bg_clients
-            ]
+            {
+                'name': self.config.get('api_accounts', [])[idx].get('name', f"Account {idx+1}") if idx < len(self.config.get('api_accounts', [])) else f"Account {idx+1}",
+                'balance': self.account_balances.get(idx, 0.0),
+                'active': idx in self.accounts,
+                'has_client': idx in self.bg_clients
+            } for idx in range(len(self.config.get('api_accounts', [])))
+        ]
         }
         self.emit('account_update', payload)
 
     def apply_live_config_update(self, new_config):
+        old_config = self.config
         self.config = new_config
-        self.language = self.config.get('language', 'pt-BR')
-        
+
+        # Handle Language Change
+        lang_changed = old_config.get('language') != self.config.get('language')
+        if lang_changed:
+            self.language = self.config.get('language', 'pt-BR')
+            # Update all existing logs in the queue
+            for entry in self.console_logs:
+                entry['rendered'] = self._render_log(entry)
+            # Re-emit the whole status to refresh UI text
+            self.emit('bot_status', {'running': self.is_running})
+            self.emit('clear_console', {})
+            for log in list(self.console_logs):
+                self.emit('console_log', log)
+
+        # Check if is_demo changed
+        demo_changed = old_config.get('is_demo') != self.config.get('is_demo')
+
+        if demo_changed:
+            mode_str = "DEMO (Testnet)" if self.config.get('is_demo') else "LIVE (Mainnet)"
+            self.log(f"Switching to {mode_str} mode. Clearing caches...", level='warning')
+
+            # Clear all environment-specific data
+            with self.market_data_lock:
+                self.shared_market_data = {}
+                self.max_leverages = {}
+
+            with self.data_lock:
+                self.grid_state = {}
+                self.trailing_state = {}
+
+            self.account_balances = {}
+            self.open_positions = {}
+
         # Immediate refresh of background states
-        self.account_balances = {} # Clear stale balances
         self._initialize_bg_clients()
         self.metadata_client = self._get_metadata_client()
+
+        # Cleanup stale data for removed accounts or cleared keys
+        num_accounts = len(self.config.get('api_accounts', []))
+        api_accounts = self.config.get('api_accounts', [])
+
+        for idx in list(self.account_balances.keys()):
+            if idx >= num_accounts:
+                del self.account_balances[idx]
+            else:
+                acc = api_accounts[idx]
+                if not acc.get('api_key') or not acc.get('api_secret'):
+                    del self.account_balances[idx]
+
+        for idx in list(self.open_positions.keys()):
+            if idx >= num_accounts:
+                del self.open_positions[idx]
+            else:
+                acc = api_accounts[idx]
+                if not acc.get('api_key') or not acc.get('api_secret'):
+                    del self.open_positions[idx]
+
         self._emit_account_update()
         
         if self.is_running:
-            strategy = self.config.get('strategy', {})
-            leverage = int(strategy.get('leverage', 20))
+            if demo_changed:
+                self.stop()
+                self.start()
+                return {"success": True}
+
+            api_accounts = self.config.get('api_accounts', [])
+            symbol_strategies = self.config.get('symbol_strategies', {})
             symbols = self.config.get('symbols', [])
             
+            # Handle account changes (Surgical updates)
+            active_idxs = list(self.accounts.keys())
+            for idx in active_idxs:
+                if idx >= len(api_accounts):
+                    try:
+                        if 'twm' in self.accounts[idx]:
+                            self.accounts[idx]['twm'].stop()
+                    except Exception as e:
+                        logging.debug(f"Error stopping TWM for account {idx}: {e}")
+                    del self.accounts[idx]
+                    with self.data_lock:
+                        for key in list(self.grid_state.keys()):
+                            if key[0] == idx: del self.grid_state[key]
+
+            for i, acc_config in enumerate(api_accounts):
+                enabled = acc_config.get('enabled', True)
+                api_key = acc_config.get('api_key', '').strip()
+                api_secret = acc_config.get('api_secret', '').strip()
+                has_keys = api_key and api_secret
+
+                if i in self.accounts:
+                    old_acc_config = self.accounts[i]['info']
+                    keys_changed = (old_acc_config.get('api_key', '').strip() != api_key or
+                                    old_acc_config.get('api_secret', '').strip() != api_secret)
+
+                    if not enabled or not has_keys or keys_changed:
+                        try:
+                            if 'twm' in self.accounts[i]:
+                                self.accounts[i]['twm'].stop()
+                        except Exception as e:
+                            logging.debug(f"Error stopping TWM for account {i}: {e}")
+                        del self.accounts[i]
+                        with self.data_lock:
+                            for key in list(self.grid_state.keys()):
+                                if key[0] == i: del self.grid_state[key]
+                    else:
+                        self.accounts[i]['info'] = acc_config
+
+                if i not in self.accounts and enabled and has_keys:
+                    self._init_account(i, acc_config)
+
             for idx in self.accounts:
                 # 1. Start threads for new symbols
                 for symbol in symbols:
                     self._start_symbol_thread(idx, symbol)
                 
-                # 2. Update leverage for current symbol (primary)
-                try:
-                    primary_symbol = strategy.get('symbol')
-                    if primary_symbol:
-                        self.accounts[idx]['client'].futures_change_leverage(symbol=primary_symbol, leverage=leverage)
-                        self.log("live_update_leverage", account_name=self.accounts[idx]['info'].get('name'), is_key=True, leverage=leverage, symbol=primary_symbol)
-                except Exception as e:
-                    self.log(f"Failed to update leverage: {e}", 'warning')
+                # 2. Update leverage for all active symbols
+                for symbol in symbols:
+                    if symbol in symbol_strategies:
+                        leverage = int(symbol_strategies[symbol].get('leverage', 20))
+                        try:
+                            # Clamp to max allowed
+                            max_l = self.max_leverages.get(symbol, 125)
+                            if leverage > max_l: leverage = max_l
+                            
+                            self.accounts[idx]['client'].futures_change_leverage(symbol=symbol, leverage=leverage)
+                            # self.log("live_update_leverage", account_name=self.accounts[idx]['info'].get('name'), is_key=True, leverage=leverage, symbol=symbol)
+                        except Exception as e:
+                            pass
         
         return {"success": True}
 
-    def close_position(self, account_name, symbol):
-        # Find the account
-        for idx, acc in self.accounts.items():
-            if acc['info'].get('name') == account_name:
-                client = acc['client']
-                try:
-                    # Cancel all orders
-                    client.futures_cancel_all_open_orders(symbol=symbol)
-                    # Close position by market order
-                    pos = client.futures_position_information(symbol=symbol)
-                    for p in pos:
-                        if p['symbol'] == symbol:
-                            amt = float(p['positionAmt'])
-                            if amt != 0:
-                                side = Client.SIDE_SELL if amt > 0 else Client.SIDE_BUY
-                                client.futures_create_order(
-                                    symbol=symbol,
-                                    side=side,
-                                    type=Client.FUTURE_ORDER_TYPE_MARKET,
-                                    quantity=abs(amt)
-                                )
-                    self.log("pos_closed_manual", account_name=account_name, is_key=True, symbol=symbol)
-                except Exception as e:
-                    self.log("error_closing_pos", level='error', account_name=account_name, is_key=True, error=str(e))
-                break
+    def close_position(self, account_idx, symbol):
+        # Find the client in trading accounts or background clients
+        target_client = None
+        if isinstance(account_idx, int):
+            if account_idx in self.accounts:
+                target_client = self.accounts[account_idx]['client']
+            elif account_idx in self.bg_clients:
+                target_client = self.bg_clients[account_idx]['client']
+        else:
+            # Fallback for name-based lookup
+            for acc in self.accounts.values():
+                if acc['info'].get('name') == account_idx:
+                    target_client = acc['client']
+                    break
+            if not target_client:
+                for acc in self.bg_clients.values():
+                    if acc.get('name') == account_idx:
+                        target_client = acc['client']
+                        break
+
+        if target_client:
+            try:
+                # Cancel all orders
+                target_client.futures_cancel_all_open_orders(symbol=symbol)
+                # Close position by market order
+                pos = target_client.futures_position_information(symbol=symbol)
+                for p in pos:
+                    if p['symbol'] == symbol:
+                        amt = float(p['positionAmt'])
+                        if amt != 0:
+                            side = Client.SIDE_SELL if amt > 0 else Client.SIDE_BUY
+                            target_client.futures_create_order(
+                                symbol=symbol,
+                                side=side,
+                                type=Client.FUTURE_ORDER_TYPE_MARKET,
+                                quantity=self._format_quantity(symbol, abs(amt))
+                            )
+                acc_name = self.config.get('api_accounts', [])[account_idx].get('name') if isinstance(account_idx, int) and account_idx < len(self.config.get('api_accounts', [])) else str(account_idx)
+                self.log("pos_closed_manual", account_name=acc_name, is_key=True, symbol=symbol)
+
+                # Cleanup grid state if managed
+                with self.data_lock:
+                    if isinstance(account_idx, int):
+                        if (account_idx, symbol) in self.grid_state:
+                            del self.grid_state[(account_idx, symbol)]
+                    else:
+                        for (idx, sym), state in list(self.grid_state.items()):
+                            if sym == symbol:
+                                api_accounts = self.config.get('api_accounts', [])
+                                a_name = api_accounts[idx].get('name') if idx < len(api_accounts) else None
+                                if a_name == account_idx:
+                                    del self.grid_state[(idx, sym)]
+
+            except Exception as e:
+                self.log("error_closing_pos", level='error', account_name=str(account_idx), is_key=True, error=str(e))
 
     def _global_background_worker(self):
         """Global worker for fetching prices once and updating shared metrics."""
@@ -642,7 +1011,6 @@ class BinanceTradingBotEngine:
             try:
                 # 1. Update shared market data (prices)
                 symbols = list(self.config.get('symbols', []))
-                # logging.info(f"[DEBUG] Pricing worker starting for symbols: {symbols}")
                 
                 # Use metadata client if no accounts are active yet
                 active_client = None
@@ -656,14 +1024,17 @@ class BinanceTradingBotEngine:
 
                 if symbols and active_client:
                     try:
-                        prices = active_client.futures_symbol_ticker()
-                        price_map = {item['symbol']: float(item['price']) for item in prices}
+                        # Fetch orderbook ticker for bid/ask
+                        tickers = active_client.futures_orderbook_ticker()
+                        price_map = {
+                            item['symbol']: {
+                                'bid': float(item['bidPrice']),
+                                'ask': float(item['askPrice']),
+                                'last': (float(item['bidPrice']) + float(item['askPrice'])) / 2
+                            } for item in tickers if item['symbol'] in symbols
+                        }
                     except Exception as e:
-                        logging.error(f"[DEBUG] Error fetching futures ticker: {e}")
                         price_map = {}
-                    
-                    if not price_map:
-                        logging.warning("[DEBUG] Price map is empty!")
                     
                     with self.market_data_lock:
                         for symbol in symbols:
@@ -677,10 +1048,12 @@ class BinanceTradingBotEngine:
                                             if s['symbol'] == symbol:
                                                 self.shared_market_data[symbol]['info'] = s
                                                 break
-                                    except Exception as e:
-                                        logging.error(f"[DEBUG] Error fetching exchange info for {symbol}: {e}")
+                                    except:
+                                        pass
                                         
-                                self.shared_market_data[symbol]['price'] = price_map[symbol]
+                                self.shared_market_data[symbol]['price'] = price_map[symbol]['last']
+                                self.shared_market_data[symbol]['bid'] = price_map[symbol]['bid']
+                                self.shared_market_data[symbol]['ask'] = price_map[symbol]['ask']
                                 self.shared_market_data[symbol]['last_update'] = time.time()
                                 
                                 # Fetch max leverage if not cached
@@ -697,7 +1070,6 @@ class BinanceTradingBotEngine:
                                         self.max_leverages[symbol] = 125 # Default fallback
                     
                     if price_map:
-                        # logging.info(f"[DEBUG] Emitting price_update with {len(price_map)} symbols")
                         self.emit('price_update', price_map)
                     
                     # 2. Update balances for all background accounts
@@ -719,8 +1091,14 @@ class BinanceTradingBotEngine:
     def _emit_latest_prices(self):
         """Broadcasts the current last-known state from shared memory."""
         with self.market_data_lock:
-            # Reconstruct price map from shared storage
-            price_map = {s: data['price'] for s, data in self.shared_market_data.items()}
+            # Reconstruct price map from shared storage with full {bid, ask, last}
+            price_map = {}
+            for s, data in self.shared_market_data.items():
+                price_map[s] = {
+                    'bid': data.get('bid', data['price']),
+                    'ask': data.get('ask', data['price']),
+                    'last': data['price']
+                }
             if price_map:
                 self.emit('price_update', price_map)
             self.emit('max_leverages', self.max_leverages)
@@ -735,78 +1113,349 @@ class BinanceTradingBotEngine:
 
     def _symbol_logic_worker(self, idx, symbol):
         """Dedicated worker for each symbol's grid and trailing logic."""
-        self._setup_strategy_for_account(idx, symbol)
-        
-        while self.is_running and not self.stop_event.is_set():
-            try:
-                # Check if this symbol still in config (for live removal)
-                if symbol not in self.config.get('symbols', []):
-                    self.log("stopping_thread", is_key=True, symbol=symbol)
-                    break
-                    
-                self._trailing_tp_logic(idx, symbol)
-                time.sleep(1)
-            except Exception as e:
-                logging.error(f"Symbol logic worker error ({symbol}): {e}")
-                time.sleep(5)
+        try:
+            self._setup_strategy_for_account(idx, symbol)
 
-    def _trailing_tp_logic(self, idx, symbol):
-        symbol_strategies = self.config.get('symbol_strategies', {})
-        strategy = symbol_strategies.get(symbol, {})
-        if not strategy.get('trailing_enabled'): return
+            while self.is_running and not self.stop_event.is_set():
+                if idx not in self.accounts:
+                    break
+                try:
+                    # Check if this symbol still in config (for live removal)
+                    if symbol not in self.config.get('symbols', []):
+                        self.log("stopping_thread", is_key=True, symbol=symbol)
+                        break
+                    # 2. Check and place initial entry
+                    self._check_and_place_initial_entry(idx, symbol)
+
+                    # 3. Trailing Take Profit Logic
+                    self._trailing_tp_logic(idx, symbol)
+
+                    # 4. Market Take Profit Logic (if enabled)
+                    self._tp_market_logic(idx, symbol)
+
+                    # 5. Stop Loss Logic
+                    self._stop_loss_logic(idx, symbol)
+                    self._trailing_buy_logic(idx, symbol)
+                    self._conditional_logic(idx, symbol)
+                    time.sleep(1)
+                except Exception as e:
+                    logging.error(f"Symbol logic worker error ({symbol}): {e}")
+                    time.sleep(5)
+        finally:
+            with self.data_lock:
+                key = (idx, symbol)
+                if self.symbol_threads.get(key) == threading.current_thread():
+                    del self.symbol_threads[key]
+
+
+    def _trailing_buy_logic(self, idx, symbol):
+        with self.data_lock:
+            state = self.grid_state.get((idx, symbol))
+            if not state or not state.get('trailing_buy_active'): return
+            
+        strategy = self.config.get('symbol_strategies', {}).get(symbol, {})
+        direction = strategy.get('direction', 'LONG')
+        target_price = state.get('trailing_buy_target')
+        dev_pct = float(strategy.get('trailing_buy_deviation', 0.1))
+
+        with self.market_data_lock:
+            current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
         
-        deviation_pct = float(strategy.get('trailing_deviation', 0.5))
-        # Enforce a minimum deviation to avoid accidental immediate triggers
-        if deviation_pct < 0.01:
-            return
+        if current_price <= 0: return
+
+        # For LONG trailing buy: price must first hit target, then we track the LOWEST price, then we buy when it bounces up by dev_pct.
+        # But 3Commas "Trailing Buy" usually means: price is BELOw target, we track LOW, then buy on BOUNCE.
+        if direction == 'LONG':
+            # Phase 1: Hit target (or if already below)
+            if current_price <= target_price:
+                if state['trailing_buy_peak'] == 0 or current_price < state['trailing_buy_peak']:
+                    state['trailing_buy_peak'] = current_price
+                
+                # Check for bounce
+                retrace = (current_price - state['trailing_buy_peak']) / state['trailing_buy_peak'] * 100
+                if retrace >= dev_pct:
+                    self.log("trailing_buy_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, bounce=f"{retrace:.2f}", price=current_price)
+                    state['trailing_buy_active'] = False
+                    self._execute_market_entry(idx, symbol)
+        else: # SHORT
+            if current_price >= target_price:
+                if state['trailing_buy_peak'] == 0 or current_price > state['trailing_buy_peak']:
+                    state['trailing_buy_peak'] = current_price
+                
+                # Check for dip
+                retrace = (state['trailing_buy_peak'] - current_price) / state['trailing_buy_peak'] * 100
+                if retrace >= dev_pct:
+                    self.log("trailing_sell_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, dip=f"{retrace:.2f}", price=current_price)
+                    state['trailing_buy_active'] = False
+                    self._execute_market_entry(idx, symbol)
+
+    def _conditional_logic(self, idx, symbol):
+        with self.data_lock:
+            state = self.grid_state.get((idx, symbol))
+            if not state or not state.get('conditional_active'): return
+            
+        strategy = self.config.get('symbol_strategies', {}).get(symbol, {})
+        direction = strategy.get('direction', 'LONG')
+        trigger_price = state.get('trigger_price', 0)
+        cond_type = state.get('conditional_type', 'CONDITIONAL')
+
+        with self.market_data_lock:
+            current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
         
+        if current_price <= 0: return
+
+        # Trigger logic
+        triggered = False
+        if direction == 'LONG':
+            if current_price >= trigger_price: triggered = True
+        else: # SHORT
+            if current_price <= trigger_price: triggered = True
+
+        if triggered:
+            self.log("conditional_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, price=current_price)
+            with self.data_lock:
+                state['conditional_active'] = False
+            
+            if cond_type == 'COND_MARKET' or cond_type == 'CONDITIONAL':
+                self._execute_market_entry(idx, symbol)
+            else: # COND_LIMIT
+                order_price = trigger_price # Use same price for trigger and execution
+                trade_amount_usdc = float(strategy.get('trade_amount_usdc', 0))
+                leverage = int(strategy.get('leverage', 20))
+                quantity = (trade_amount_usdc * leverage) / order_price
+                side = Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL
+                
+                try:
+                    order_id = self._place_limit_order(idx, symbol, side, quantity, order_price)
+                    if order_id:
+                        with self.data_lock:
+                            state['initial_order_id'] = order_id
+                except Exception as e:
+                    self.log("cond_limit_failed", level='error', account_name=self.accounts[idx]['info'].get('name'), is_key=True, error=str(e))
+
+    def _execute_market_entry(self, idx, symbol):
+        strategy = self.config.get('symbol_strategies', {}).get(symbol, {})
+        trade_amount_usdc = float(strategy.get('trade_amount_usdc', 0))
+        leverage = int(strategy.get('leverage', 20))
         direction = strategy.get('direction', 'LONG')
         
+        with self.market_data_lock:
+            current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
+        
+        quantity = (trade_amount_usdc * leverage) / current_price
+        side = Client.SIDE_BUY if direction == 'LONG' else Client.SIDE_SELL
+        
+        if not self._check_balance_for_order(idx, quantity, current_price):
+            log_key = f"insufficient_balance_{idx}_{symbol}"
+            now = time.time()
+            if now - self.last_log_times.get(log_key, 0) > 60:
+                self.log("insufficient_balance", level='warning', account_name=self.accounts[idx]['info'].get('name'), is_key=True, qty=quantity, price=current_price)
+                self.last_log_times[log_key] = now
+            return
+
+        try:
+            self.log("executing_market_entry", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, direction=direction)
+            # We use market order for trailing buy trigger
+            order = self.accounts[idx]['client'].futures_create_order(
+                symbol=symbol,
+                side=side,
+                type=Client.FUTURE_ORDER_TYPE_MARKET,
+                quantity=self._format_quantity(symbol, quantity)
+            )
+            # The user data handler will catch the fill and place the grid
+        except Exception as e:
+            self.log("market_entry_failed", level='error', account_name=self.accounts[idx]['info'].get('name'), is_key=True, error=str(e))
+
+    def _tp_market_logic(self, idx, symbol):
+        """Monitors price for manual market TP execution."""
         with self.data_lock:
             state = self.grid_state.get((idx, symbol))
             if not state or not state.get('initial_filled'): return
             
-            # Get current price from shared data
+            levels = state.get('levels', {})
+            if not levels: return
+
+        with self.market_data_lock:
+            current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
+        
+        if current_price <= 0: return
+
+        strategy = self.config.get('symbol_strategies', {}).get(symbol, {})
+        direction = strategy.get('direction', 'LONG')
+
+        to_execute = []
+        with self.data_lock:
+            for lvl_idx, lvl in levels.items():
+                if not lvl.get('tp_order_id') and not lvl.get('filled') and not lvl.get('trailing_eligible'):
+                    target_price = lvl['price']
+                    triggered = False
+                    if direction == 'LONG':
+                        if current_price >= target_price: triggered = True
+                    else: # SHORT
+                        if current_price <= target_price: triggered = True
+                    
+                    if triggered:
+                        to_execute.append((lvl_idx, lvl))
+
+        for lvl_idx, lvl in to_execute:
+            self.log("tp_market_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, level=lvl_idx, price=current_price)
+            # Execute Market Order
+            success = self._execute_market_close_partial(idx, symbol, lvl['qty'], lvl['side'])
+            if success:
+                with self.data_lock:
+                    lvl['filled'] = True
+                    self.log("tp_filled_market", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, level=lvl_idx)
+
+                self._handle_reentry_logic(idx, symbol, lvl['qty'])
+
+    def _execute_market_close_partial(self, idx, symbol, qty, side):
+        """Executes a market order to close part of a position."""
+        acc = self.accounts[idx]
+        client = acc['client']
+        try:
+            client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type=Client.ORDER_TYPE_MARKET,
+                quantity=self._format_quantity(symbol, qty)
+            )
+            return True
+        except Exception as e:
+            self.log("tp_market_failed", level='error', account_name=self.accounts[idx]['info'].get('name'), is_key=True, error=str(e))
+            return False
+
+    def _stop_loss_logic(self, idx, symbol):
+        symbol_strategies = self.config.get('symbol_strategies', {})
+        strategy = symbol_strategies.get(symbol, {})
+        if not strategy.get('stop_loss_enabled'): return
+        
+        sl_price = float(strategy.get('stop_loss_price', 0))
+        if sl_price <= 0: return
+
+        with self.data_lock:
+            state = self.grid_state.get((idx, symbol))
+            if not state or not state.get('initial_filled'): return
+            
             with self.market_data_lock:
                 current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
             
             if current_price == 0: return
-
-            # Initialize peak price if not present — skip trigger on this tick
-            peak_key = (idx, symbol)
-            if peak_key not in self.trailing_state:
-                self.trailing_state[peak_key] = {'peak': current_price, 'just_initialized': True}
-                return  # Don't trigger on the initialization tick
             
-            # Clear the just_initialized flag on the next tick
-            if self.trailing_state[peak_key].get('just_initialized'):
-                self.trailing_state[peak_key]['just_initialized'] = False
+            direction = strategy.get('direction', 'LONG')
+            
+            # Trailing Stop Loss Logic
+            if strategy.get('trailing_sl_enabled'):
+                peak_key = (idx, symbol, 'sl_peak')
+                if peak_key not in self.trailing_state:
+                    self.trailing_state[peak_key] = {'peak': current_price}
+                
+                peak = self.trailing_state[peak_key]['peak']
+                if direction == 'LONG':
+                    if current_price > peak:
+                        diff = current_price - peak
+                        sl_price += diff # Move SL up with price
+                        self.trailing_state[peak_key]['peak'] = current_price
+                        strategy['stop_loss_price'] = sl_price
+                else:
+                    if current_price < peak:
+                        diff = peak - current_price
+                        sl_price -= diff # Move SL down with price
+                        self.trailing_state[peak_key]['peak'] = current_price
+                        strategy['stop_loss_price'] = sl_price
 
-            peak = self.trailing_state[peak_key]['peak']
+            # Move to Breakeven Logic
+            if strategy.get('move_to_breakeven'):
+                anchor = state.get('avg_entry_price', float(strategy.get('entry_price', 0)))
+                if direction == 'LONG' and current_price > anchor * 1.005: # 0.5% in profit
+                     if sl_price < anchor:
+                         sl_price = anchor
+                         strategy['stop_loss_price'] = sl_price
+                elif direction == 'SHORT' and current_price < anchor * 0.995:
+                     if sl_price > anchor:
+                         sl_price = anchor
+                         strategy['stop_loss_price'] = sl_price
 
-            # Update peak price
+            # Stop Loss Timeout Logic
+            triggered = (direction == 'LONG' and current_price <= sl_price) or \
+                        (direction == 'SHORT' and current_price >= sl_price)
+            
+            if triggered:
+                if strategy.get('sl_timeout_enabled'):
+                    timeout_sec = int(strategy.get('sl_timeout_duration', 10))
+                    trigger_key = (idx, symbol, 'sl_trigger_time')
+                    if trigger_key not in self.trailing_state:
+                        self.trailing_state[trigger_key] = time.time()
+                        self.log("sl_timeout_started", account_name=self.accounts[idx]['info'].get('name'), is_key=False, sec=timeout_sec)
+                        return # Wait for next loop
+                    
+                    elapsed = time.time() - self.trailing_state[trigger_key]
+                    if elapsed < timeout_sec:
+                        return # Still waiting
+                    
+                    # If we are here, timeout reached. Close only if still triggered.
+                
+                self.log("stop_loss_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, price=current_price)
+                self.close_position(self.accounts[idx]['info'].get('name'), symbol)
+                state['initial_filled'] = False
+                # Clean up trigger time
+                trigger_key = (idx, symbol, 'sl_trigger_time')
+                if trigger_key in self.trailing_state: del self.trailing_state[trigger_key]
+            else:
+                # Price recovered, reset timeout if any
+                trigger_key = (idx, symbol, 'sl_trigger_time')
+                if trigger_key in self.trailing_state: 
+                    del self.trailing_state[trigger_key]
+                    self.log("sl_timeout_reset", account_name=self.accounts[idx]['info'].get('name'), is_key=False)
+
+    def _trailing_tp_logic(self, idx, symbol):
+        symbol_strategies = self.config.get('symbol_strategies', {})
+        strategy = symbol_strategies.get(symbol, {})
+        if not strategy.get('trailing_tp_enabled'): return
+
+        with self.data_lock:
+            state = self.grid_state.get((idx, symbol))
+            if not state or not state.get('initial_filled'): return
+            
+            with self.market_data_lock:
+                current_price = self.shared_market_data.get(symbol, {}).get('price', 0)
+            
+            if current_price == 0: return
+            
+            direction = strategy.get('direction', 'LONG')
+            deviation = float(strategy.get('trailing_deviation', 0.5)) / 100.0
+            anchor = state.get('avg_entry_price', float(strategy.get('entry_price', 0)))
+            
+            # Start trailing only if in profit by at least 0.1%
+            profit_pct = (current_price - anchor) / anchor if direction == 'LONG' else (anchor - current_price) / anchor
+            
+            peak_key = (idx, symbol, 'tp_peak')
+            if not state.get('tp_trailing_active'):
+                if profit_pct > 0.001: 
+                     state['tp_trailing_active'] = True
+                     self.trailing_state[peak_key] = current_price
+                     self.log("trailing_tp_tracking", account_name=self.accounts[idx]['info'].get('name'), is_key=False, symbol=symbol)
+                return
+
+            # Update peak
+            peak = self.trailing_state.get(peak_key, current_price)
             if direction == 'LONG':
                 if current_price > peak:
-                    self.trailing_state[peak_key]['peak'] = current_price
-                else:
-                    # Check for trailing retrace
-                    retrace = (peak - current_price) / peak * 100
-                    if retrace >= deviation_pct:
-                        self.log("trailing_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, retrace=f"{retrace:.2f}", peak=peak)
-                        self.close_position(self.accounts[idx]['info'].get('name'), symbol)
-                        state['initial_filled'] = False
-                        del self.trailing_state[peak_key]
-            else: # SHORT
+                    self.trailing_state[peak_key] = current_price
+                elif current_price <= peak * (1 - deviation):
+                    self.log("trailing_tp_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, price=current_price)
+                    self.close_position(self.accounts[idx]['info'].get('name'), symbol)
+                    state['initial_filled'] = False
+                    state['tp_trailing_active'] = False
+                    if peak_key in self.trailing_state: del self.trailing_state[peak_key]
+            else:
                 if current_price < peak:
-                    self.trailing_state[peak_key]['peak'] = current_price
-                else:
-                    # Check for trailing retrace (price up is bad for short)
-                    retrace = (current_price - peak) / peak * 100
-                    if retrace >= deviation_pct:
-                        self.log("trailing_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, retrace=f"{retrace:.2f}", peak=peak)
-                        self.close_position(self.accounts[idx]['info'].get('name'), symbol)
-                        state['initial_filled'] = False
-                        del self.trailing_state[peak_key]
+                    self.trailing_state[peak_key] = current_price
+                elif current_price >= peak * (1 + deviation):
+                    self.log("trailing_tp_triggered", account_name=self.accounts[idx]['info'].get('name'), is_key=True, symbol=symbol, price=current_price)
+                    self.close_position(self.accounts[idx]['info'].get('name'), symbol)
+                    state['initial_filled'] = False
+                    state['tp_trailing_active'] = False
+                    if peak_key in self.trailing_state: del self.trailing_state[peak_key]
 
     def get_status(self):
         return {

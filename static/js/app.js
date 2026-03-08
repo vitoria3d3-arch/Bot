@@ -1,812 +1,866 @@
 const socket = io();
 
-const translations = {
-    'pt-BR': {
-        'nav-title': 'Binance Scaler',
-        'botStatus-Running': 'Rodando',
-        'botStatus-Stopped': 'Parado',
-        'btn-start-text': 'Começar',
-        'btn-stop-text': 'Parar',
-        'btn-config-text': 'Config',
-        'label-units': 'Estratégia Detalhada',
-        'label-existing-assets': 'Gerenciar Ativos Existentes',
-        'label-leverage': 'Alavancagem e Margem',
-        'label-leverage-type': 'Modo de Margem',
-        'label-leverage-custom': 'Ajuste Fino',
-        'label-bought-price': 'Valor da Operação',
-        'label-current-price': 'Preço de Mercado:',
-        'label-total': 'Notional (Units)',
-        'label-tp': 'Realização de Lucro',
-        'label-order-info': 'A ordem será colocada no livro de ordens da exchange antecipadamente',
-        'label-available': 'Disponível:',
-        'label-percent': 'Percentagem',
-        'label-quantity': 'Quantidade',
-        'label-max-targets': 'Máximo de alvos TP definidos',
-        'label-trailing-tp': 'Realização de Lucro Móvel (Trailing)',
-        'label-trailing-deviation': 'Seguir preço máximo com desvio (%)',
-        'label-approx-profit': 'Lucro Aproximado:',
-        'label-est-peak': 'Preço Máximo Estimado:',
-        'label-acc-summary': 'Resumo da Conta',
-        'label-total-balance': 'Patrimônio Líquido',
-        'label-active-accs': 'Contas Ativas',
-        'label-symbols': 'Símbolos',
-        'tab-positions': 'Posições',
-        'tab-logs': 'Registro Console',
-        'th-acc': 'Conta',
-        'th-symbol': 'Símbolo',
-        'th-size': 'Tamanho',
-        'th-entry': 'Preço Entrada',
-        'th-pnl': 'PNL Não Realizado',
-        'th-action': 'Ação',
-        'msg-no-positions': 'Nenhuma posição aberta',
-        'label-bot-config': 'Configuração do Bot',
-        'tab-api-config': 'Configuração API',
-        'tab-strat-config': 'Configuração Estratégia',
-        'label-demo-mode': 'Modo Demo / Testnet',
-        'lc-symbol': 'Símbolo',
-        'lc-direction': 'Direção',
-        'lc-total-qty': 'Quant. Total',
-        'lc-fractions': 'Frações Totais',
-        'lc-total-qty': 'Quant. Total',
-        'lc-fractions': 'Frações Totais',
-        'lc-deviation': 'Desvio (%)',
-        'manual-pos-title': 'Posição Manual Detectada',
-        'label-size': 'Tam:',
-        'label-entry': 'Ent:',
-        'btn-clear': 'Limpar',
-        'btn-close': 'Fechar',
-        'btn-save': 'Salvar Configuração',
-        'prompt-symbol': "Digite o símbolo (ex: BTCUSDC):",
-        'confirm-close': "Fechar posição de {symbol} na conta {account}?",
-        'margin-req': 'Margem Requerida',
-        'margin-est': 'Margem Prevista',
-        'label-dev': 'Desvio:',
-        'margin-crossed': 'Cruzada',
-        'margin-isolated': 'Isolada',
-        'btn-clear-console': 'Limpar'
-    },
-    'en-US': {
-        'nav-title': 'Binance Scaler',
-        'botStatus-Running': 'Running',
-        'botStatus-Stopped': 'Stopped',
-        'btn-start-text': 'Start',
-        'btn-stop-text': 'Stop',
-        'btn-config-text': 'Settings',
-        'label-units': 'Strategic Control',
-        'label-existing-assets': 'Manage Existing Assets',
-        'label-leverage': 'Leverage & Margin',
-        'label-leverage-type': 'Margin Mode',
-        'label-leverage-custom': 'Leverage Fine-tuning',
-        'label-bought-price': 'Trade Amount',
-        'label-current-price': 'Market Price:',
-        'label-total': 'Total Notional (Units)',
-        'label-tp': 'Take Profit',
-        'label-order-info': 'The order will be placed on the exchange order book beforehand',
-        'label-available': 'Available:',
-        'label-percent': 'Percent',
-        'label-quantity': 'Quantity',
-        'label-max-targets': 'Max TP targets set',
-        'label-trailing-tp': 'Trailing Take Profit',
-        'label-trailing-deviation': 'Follow max price with deviation (%)',
-        'label-approx-profit': 'Approximate Profit:',
-        'label-est-peak': 'Estimated Peak Price:',
-        'label-acc-summary': 'Account Summary',
-        'label-total-balance': 'Net Equity',
-        'label-active-accs': 'Active Accounts',
-        'label-symbols': 'Symbols',
-        'tab-positions': 'Positions',
-        'tab-logs': 'Console Log',
-        'th-acc': 'Account',
-        'th-symbol': 'Symbol',
-        'th-size': 'Size',
-        'th-entry': 'Entry Price',
-        'th-pnl': 'Unrealized PNL',
-        'th-action': 'Action',
-        'msg-no-positions': 'No open positions',
-        'label-bot-config': 'Bot Configuration',
-        'tab-api-config': 'API Config',
-        'tab-strat-config': 'Strategy Config',
-        'label-demo-mode': 'Demo / Testnet Mode',
-        'lc-symbol': 'Symbol',
-        'lc-direction': 'Direction',
-        'lc-total-qty': 'Total Qty',
-        'lc-fractions': 'Total Fractions',
-        'lc-deviation': 'Deviation (%)',
-        'manual-pos-title': 'Manual Position Detected',
-        'label-size': 'Size:',
-        'label-entry': 'Ent:',
-        'btn-clear': 'Clear',
-        'btn-close': 'Close',
-        'btn-save': 'Save Configuration',
-        'prompt-symbol': "Enter Binance Symbol (e.g., BTCUSDC):",
-        'confirm-close': "Close position for {symbol} on account {account}?",
-        'margin-req': 'Required Margin',
-        'margin-est': 'Estimated Margin',
-        'label-dev': 'Deviation:',
-        'margin-crossed': 'Cross',
-        'margin-isolated': 'Isolated',
-        'btn-clear-console': 'Clear'
-    }
-};
-
-let currentLang = 'pt-BR';
+let currentLang = 'en-US';
 let currentConfig = null;
-const configModal = new bootstrap.Modal(document.getElementById('configModal'));
 let isBotRunning = false;
 let activeSymbol = null;
-let maxLeverages = {
-    'BTCUSDC': 125,
-    'LINKUSDC': 75
-}; // symbol -> maxLeverage (Defaults, will be updated by socket)
+let maxLeverages = {};
+let currentBalance = 0; // Total equity for hero
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Load translations from hidden div
+    const transData = document.getElementById('translations-data');
+    if (transData) {
+        window.allTranslations = JSON.parse(transData.textContent);
+    }
     loadConfig();
     setupEventListeners();
     setupSocketListeners();
-    applyTranslations();
 });
 
 function setupEventListeners() {
-    // Language Switch
+    // ... existing ...
     document.getElementById('lang-select').addEventListener('change', (e) => {
         currentLang = e.target.value;
-        if (currentConfig) {
-            currentConfig.language = currentLang;
-            saveLiveConfig();
-        }
-        applyTranslations();
+        saveLiveConfig({ language: currentLang });
+        applyUiTranslations();
     });
 
-    document.getElementById('startStopBtn').addEventListener('click', () => {
-        setBtnLoading(true);
-        if (isBotRunning) {
-            socket.emit('stop_bot');
-        } else {
-            socket.emit('start_bot');
-        }
-    });
+    document.getElementById('addNewSymbolBtn').addEventListener('click', () => {
+        const inputStr = document.getElementById('newSymbolInput').value;
+        const symbol = inputStr ? inputStr.trim().toUpperCase() : '';
+        if (symbol && symbol.length > 3) {
+            if (!currentConfig.symbols.includes(symbol)) {
+                currentConfig.symbols.push(symbol);
+                // Copy current strategy or initialize a default one
+                let newStrat = JSON.parse(JSON.stringify(currentConfig.symbol_strategies[activeSymbol] || {}));
 
-    document.getElementById('configBtn').addEventListener('click', () => {
-        renderConfig();
-        configModal.show();
-    });
+                // Ensure the 8-step TP ladder and recycling are enabled by default for new symbols
+                newStrat.tp_enabled = true;
+                newStrat.consolidated_reentry = true;
+                if (!newStrat.tp_targets || newStrat.tp_targets.length === 0) {
+                    newStrat.total_fractions = 8;
+                    newStrat.price_deviation = 0.6;
+                    newStrat.tp_targets = Array.from({ length: 8 }, (_, i) => ({
+                        percent: ((i + 1) * 0.6).toFixed(1),
+                        volume: 12.5
+                    }));
+                }
 
-    document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
-
-    document.getElementById('addSymbolBtn').addEventListener('click', () => {
-        const symbol = prompt(translations[currentLang]['prompt-symbol']);
-        if (symbol && currentConfig) {
-            const upperSymbol = symbol.toUpperCase();
-            if (!currentConfig.symbols.includes(upperSymbol)) {
-                currentConfig.symbols.push(upperSymbol);
-                updateSymbolList();
+                currentConfig.symbol_strategies[symbol] = newStrat;
                 saveLiveConfig();
+                initSymbolPicker();
+                renderSymbolsList(); // Update the settings modal list
+                document.getElementById('newSymbolInput').value = '';
+                document.getElementById('selectActiveSymbol').value = symbol;
+                activeSymbol = symbol;
+                updateUIFromConfig();
             }
         }
     });
 
-    document.getElementById('clearConsoleBtn').addEventListener('click', () => {
-        document.getElementById('consoleOutput').innerHTML = '';
+
+    // ... balance % buttons ...
+    document.getElementById('startStopBtn').addEventListener('click', () => {
+        const btn = document.getElementById('startStopBtn');
+        const spinner = document.getElementById('startStopSpinner');
+        btn.disabled = true;
+        if (spinner) spinner.classList.remove('d-none');
+
+        if (isBotRunning) socket.emit('stop_bot');
+        else socket.emit('start_bot');
     });
 
-    // Inputs updates
-    document.getElementById('inputTradeAmountUSDC').addEventListener('input', updateTotalBaseUnits);
-
+    // Asset Switcher
     document.getElementById('selectActiveSymbol').addEventListener('change', (e) => {
         activeSymbol = e.target.value;
+        const unit = 'USDC';
+        const labels = ['asset-symbol-label', 'base-asset-label', 'entry-price-asset-label', 'tp-price-asset-label', 'sl-price-asset-label', 'sl-order-price-asset-label'];
+        labels.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = unit;
+        });
         updateUIFromConfig();
     });
 
-    document.getElementById('inputLeverage').addEventListener('input', (e) => {
-        updateLeverageDisplay(e.target.value);
-        if (currentConfig && activeSymbol) {
-            currentConfig.symbol_strategies[activeSymbol].leverage = parseInt(e.target.value);
-            saveLiveConfig();
+    // Balance % Buttons
+    document.querySelectorAll('#pct-buttons button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const pct = parseInt(btn.dataset.pct);
+            const mode = document.getElementById('selectTradeAmountMode').value;
+
+            if (mode === 'pct') {
+                // In percentage mode, set the % value directly
+                document.getElementById('inputTradeAmountUSDC').value = pct;
+                updateStrategyField('trade_amount_usdc', pct);
+            } else {
+                // In fixed mode, calculate based on current total equity (for UX display)
+                const totalEquity = currentBalance || 0;
+                const amount = (totalEquity * (pct / 100)).toFixed(2);
+                document.getElementById('inputTradeAmountUSDC').value = amount;
+                updateStrategyField('trade_amount_usdc', parseFloat(amount));
+            }
+
+            updateTotalBaseUnits();
+            document.querySelectorAll('#pct-buttons button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+
+    document.getElementById('selectTradeAmountMode').addEventListener('change', (e) => {
+        const mode = e.target.value;
+        const isPct = (mode === 'pct');
+        updateStrategyField('trade_amount_is_pct', isPct);
+
+        // Update labels
+        document.getElementById('asset-symbol-label').classList.toggle('d-none', isPct);
+        document.getElementById('pct-symbol-label').classList.toggle('d-none', !isPct);
+
+        updateTotalBaseUnits();
+    });
+
+    // Amount & Entry Updates
+    document.getElementById('inputTradeAmountUSDC').addEventListener('input', () => {
+        updateStrategyField('trade_amount_usdc', parseFloat(document.getElementById('inputTradeAmountUSDC').value));
+        updateTotalBaseUnits();
+    });
+    document.getElementById('inputEntryPrice').addEventListener('input', updateTotalBaseUnits);
+
+    // Pillar Toggles & Overlays
+    document.getElementById('tpToggle').addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        document.getElementById('tp-overlay').classList.toggle('d-none', checked);
+        updateStrategyField('tp_enabled', checked);
+    });
+
+    document.getElementById('btn-enable-tp').addEventListener('click', () => {
+        document.getElementById('tpToggle').click();
+    });
+
+    document.getElementById('stopLossToggle').addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        document.getElementById('sl-overlay').classList.toggle('d-none', checked);
+        updateStrategyField('stop_loss_enabled', checked);
+    });
+
+    document.getElementById('btn-enable-sl').addEventListener('click', () => {
+        document.getElementById('stopLossToggle').click();
+    });
+
+    document.getElementById('useExistingToggle').addEventListener('change', (e) => {
+        updateStrategyField('use_existing', e.target.checked);
+    });
+
+    document.getElementById('trailingBuyToggle').addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        document.getElementById('trailing-buy-settings').classList.toggle('d-none', !checked);
+        updateStrategyField('trailing_buy_enabled', checked);
+    });
+
+    document.getElementById('consolidatedReentryToggle').addEventListener('change', (e) => {
+        updateStrategyField('consolidated_reentry', e.target.checked);
+    });
+
+    document.getElementById('trailingBuyDeviation').addEventListener('input', (e) => {
+        updateStrategyField('trailing_buy_deviation', parseFloat(e.target.value));
+    });
+    // Trailing TP Slider
+    const trailingSlider = document.getElementById('trailingDeviation');
+    if (trailingSlider) {
+        trailingSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            const label = document.getElementById('trailing-deviation-label');
+            if (label) label.innerText = `${val}%`;
+            updateStrategyField('trailing_deviation', parseFloat(val));
+        });
+    }
+
+
+
+    // Buy Type Tabs
+    document.querySelectorAll('#buy-type-tabs .pillar-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#buy-type-tabs .pillar-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            updateOrderTypeUI(tab.dataset.type);
+            updateStrategyField('entry_type', tab.dataset.type);
+        });
+    });
+
+    // Cond Type Tabs
+    document.querySelectorAll('#cond-type-tabs .pillar-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#cond-type-tabs .pillar-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            updateOrderTypeUI(tab.dataset.type);
+            updateStrategyField('entry_type', tab.dataset.type);
+        });
+    });
+
+    // Take Profit Type Tabs
+    document.querySelectorAll('#tp-type-tabs .pillar-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#tp-type-tabs .pillar-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const isMarket = tab.dataset.type === 'MARKET';
+            const ui = (allTranslations[currentLang] || {}).ui || {};
+            if (document.getElementById('label-tp_description')) {
+                document.getElementById('label-tp_description').innerText = isMarket ? (ui.desc_market || 'Market mode enabled') : (ui.desc_limit || 'Limit mode enabled');
+            }
+            updateStrategyField('tp_market_mode', isMarket);
+        });
+    });
+
+    if (document.getElementById('trailingTpToggle')) {
+        document.getElementById('trailingTpToggle').addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            if (document.getElementById('trailing-params')) {
+                document.getElementById('trailing-params').classList.toggle('d-none', !checked);
+            }
+            updateStrategyField('trailing_tp_enabled', checked);
+        });
+    }
+
+
+    document.getElementById('bid-price').addEventListener('click', (e) => {
+        const val = parseFloat(e.target.innerText);
+        if (!isNaN(val)) {
+            document.getElementById('inputEntryPrice').value = val;
+            updateStrategyField('entry_price', val);
+            updateTotalBaseUnits();
         }
     });
 
-    document.getElementById('trailingDeviation').addEventListener('input', (e) => {
-        const val = e.target.value;
-        const label = translations[currentLang]['label-dev'];
-        document.getElementById('label-approx-profit').innerText = `${label} ${val}%`;
-        if (currentConfig && activeSymbol) {
-            currentConfig.symbol_strategies[activeSymbol].trailing_deviation = parseFloat(val);
-            saveLiveConfig();
+    document.getElementById('ask-price').addEventListener('click', (e) => {
+        const val = parseFloat(e.target.innerText);
+        if (!isNaN(val)) {
+            document.getElementById('inputEntryPrice').value = val;
+            updateStrategyField('entry_price', val);
+            updateTotalBaseUnits();
         }
-        updateTrailingMetrics();
+    });
+
+    // Stop Loss Type Tabs
+    document.querySelectorAll('#sl-type-tabs .pillar-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#sl-type-tabs .pillar-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const type = tab.dataset.type;
+            const ui = (allTranslations[currentLang] || {}).ui || {};
+
+            const group = document.getElementById('sl-order-price-group');
+            if (group) group.classList.toggle('d-none', type === 'COND_MARKET');
+
+            const desc = document.getElementById('label-sl_description');
+            if (desc) {
+                desc.innerText = type === 'COND_MARKET' ?
+                    (ui.desc_sl_market || 'The order will be executed at market price when triggered') :
+                    (ui.desc_sl_limit || 'The order will be placed on the exchange order book when the price meets Stop Loss conditions');
+            }
+            updateStrategyField('sl_type', type);
+        });
+    });
+
+    document.getElementById('stopLossPrice').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        updateStrategyField('stop_loss_price', val);
+        updateInternalPct('sl', val);
+        // Sync Order Price
+        const orderPriceInput = document.getElementById('slOrderPrice');
+        if (orderPriceInput) {
+            orderPriceInput.value = e.target.value;
+            updateStrategyField('sl_order_price', val);
+            updateInternalPct('sl-order', val);
+        }
+    });
+
+    if (document.getElementById('slOrderPrice')) {
+        document.getElementById('slOrderPrice').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            updateStrategyField('sl_order_price', val);
+            updateInternalPct('sl-order', val);
+        });
+    }
+
+    // Timeout Adjustment
+    const timeoutInput = document.getElementById('slTimeoutDuration');
+    if (document.getElementById('slTimeoutMinus')) {
+        document.getElementById('slTimeoutMinus').addEventListener('click', () => {
+            timeoutInput.value = Math.max(0, parseInt(timeoutInput.value) - 10);
+            updateStrategyField('sl_timeout_duration', parseInt(timeoutInput.value));
+        });
+    }
+    if (document.getElementById('slTimeoutPlus')) {
+        document.getElementById('slTimeoutPlus').addEventListener('click', () => {
+            timeoutInput.value = parseInt(timeoutInput.value) + 10;
+            updateStrategyField('sl_timeout_duration', parseInt(timeoutInput.value));
+        });
+    }
+
+    document.getElementById('slTimeoutToggle').addEventListener('change', (e) => {
+        const controls = document.getElementById('sl-timeout-controls');
+        if (controls) controls.classList.toggle('d-none', !e.target.checked);
+        updateStrategyField('sl_timeout_enabled', e.target.checked);
+    });
+
+
+    document.getElementById('trailingSlToggle').addEventListener('change', (e) => {
+        updateStrategyField('trailing_sl_enabled', e.target.checked);
+    });
+
+    document.getElementById('moveToBreakevenToggle').addEventListener('change', (e) => {
+        updateStrategyField('move_to_breakeven', e.target.checked);
     });
 
     document.getElementById('trailingTpToggle').addEventListener('change', (e) => {
-        if (currentConfig && activeSymbol) {
-            currentConfig.symbol_strategies[activeSymbol].trailing_enabled = e.target.checked;
-            saveLiveConfig();
-        }
-        updateTrailingMetrics();
+        updateStrategyField('trailing_tp_enabled', e.target.checked);
     });
 
-    document.getElementById('tpToggle').addEventListener('change', (e) => {
-        if (currentConfig && activeSymbol) {
-            currentConfig.symbol_strategies[activeSymbol].tp_enabled = e.target.checked;
-            saveLiveConfig();
+    // Settings Modal Toggle
+    document.getElementById('configBtn').addEventListener('click', () => {
+        populateSettingsModal();
+        new bootstrap.Modal(document.getElementById('settingsModal')).show();
+    });
+
+    document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+        await saveSettingsFromModal();
+        bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
+        loadConfig(); // Refresh after save
+    });
+
+    document.getElementById('addNewSymbolBtn').addEventListener('click', () => {
+        const input = document.getElementById('newSymbolInput');
+        const sym = input.value.trim().toUpperCase();
+        if (sym && !currentConfig.symbols.includes(sym)) {
+            currentConfig.symbols.push(sym);
+            if (!currentConfig.symbol_strategies[sym]) {
+                currentConfig.symbol_strategies[sym] = JSON.parse(JSON.stringify(currentConfig.symbol_strategies[activeSymbol] || {}));
+            }
+            input.value = '';
+            renderSymbolsInModal();
         }
     });
 
-    document.getElementById('inputMarginType').addEventListener('change', (e) => {
-        if (currentConfig && activeSymbol) {
-            currentConfig.symbol_strategies[activeSymbol].margin_type = e.target.value;
-            saveLiveConfig();
-        }
+    // Custom Bottom Tabs
+    document.querySelectorAll('[data-tab-target]').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const target = tab.dataset.tabTarget;
+            document.querySelectorAll('.tab-pane-custom').forEach(p => p.classList.add('d-none'));
+            document.querySelector(target).classList.remove('d-none');
+            document.querySelectorAll('[data-tab-target]').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+        });
     });
+}
 
-    document.getElementById('useExistingAssets').addEventListener('change', (e) => {
-        if (currentConfig && activeSymbol) {
-            currentConfig.symbol_strategies[activeSymbol].use_existing_assets = e.target.checked;
-            saveLiveConfig();
-        }
-    });
-
-    document.getElementById('inputEstimatedPeak')?.addEventListener('input', updateTrailingMetrics);
+function updateInternalPct(type, val) {
+    if (!activeSymbol || isNaN(val)) return;
+    const entry = parseFloat(document.getElementById('inputEntryPrice').value) || parseFloat(document.getElementById('bid-price').innerText);
+    if (!entry) return;
+    const diff = (val - entry) / entry * 100;
+    const badge = document.getElementById(`${type}-pct-badge`);
+    badge.innerText = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`;
 }
 
 function updateTotalBaseUnits() {
-    const amountUSDC = parseFloat(document.getElementById('inputTradeAmountUSDC').value || 0);
-    // User requested: make sure to use the current value of leverage that the slider is set to
-    const slider = document.getElementById('inputLeverage');
-    const leverage = parseInt(slider.value || 20);
-    const priceText = document.getElementById('current-price-val').innerText.split(' ')[0];
+    if (!activeSymbol || !currentConfig) return;
+    const amountVal = parseFloat(document.getElementById('inputTradeAmountUSDC').value || 0);
+    const priceText = document.getElementById('bid-price').innerText;
     const currentPrice = parseFloat(priceText) || 1;
+    const entryInput = parseFloat(document.getElementById('inputEntryPrice').value);
+    const leverage = (currentConfig.symbol_strategies[activeSymbol] || {}).leverage || 20;
+    const isPct = document.getElementById('selectTradeAmountMode').value === 'pct';
 
-    const totalUnits = (amountUSDC * leverage) / currentPrice;
-    document.getElementById('inputTotalUnits').value = totalUnits.toFixed(4);
+    let totalUSDC = amountVal;
+    if (isPct) {
+        // If %, show estimate based on current dashboard total equity for UI preview
+        totalUSDC = (currentBalance * (amountVal / 100.0));
+    }
 
+    // The user wants to see Total Notional in USDC (Margin * Leverage)
+    const totalNotionalUSDC = totalUSDC * leverage;
+    document.getElementById('inputTotalUnits').value = totalNotionalUSDC.toFixed(2);
+
+    // Still calculate units for min requirements check
+    const totalUnits = totalNotionalUSDC / (entryInput || currentPrice);
+    checkMinRequirements(totalUnits);
+}
+
+function checkMinRequirements(units) {
+    const minBTC = 0.00015;
+    const isBelow = activeSymbol.includes('BTC') && units < minBTC;
+    const warning = document.getElementById('min-req-warning');
+    if (warning) warning.classList.toggle('d-none', !isBelow);
+}
+
+function updateStrategyField(field, value) {
     if (currentConfig && activeSymbol) {
-        currentConfig.symbol_strategies[activeSymbol].trade_amount_usdc = amountUSDC;
-        // saveLiveConfig(); // Too frequent
+        if (!currentConfig.symbol_strategies[activeSymbol]) currentConfig.symbol_strategies[activeSymbol] = {};
+        currentConfig.symbol_strategies[activeSymbol][field] = value;
+        // Auto-save on discrete changes
+        saveLiveConfig();
     }
-
-    updateLeverageDisplay(leverage);
-    updateTrailingMetrics();
-}
-
-function updateLeverageDisplay(val) {
-    const amountUSDC = parseFloat(document.getElementById('inputTradeAmountUSDC').value || 0);
-    const leverage = parseInt(val);
-    document.getElementById('current-leverage-val').innerText = `${leverage}x`;
-
-    const marginStable = (amountUSDC).toFixed(2);
-    const stable = 'USDC';
-
-    const anyEnabled = currentConfig && currentConfig.api_accounts.some(acc => acc.enabled && acc.api_key);
-    const marginLabel = anyEnabled ? translations[currentLang]['margin-req'] : translations[currentLang]['margin-est'];
-
-    document.getElementById('margin-info').innerText = `${marginLabel}: ${marginStable} ${stable}`;
-
-    updateTrailingMetrics();
-}
-
-function updateTrailingMetrics() {
-    if (!currentConfig || !activeSymbol) return;
-    const strat = currentConfig.symbol_strategies[activeSymbol];
-    if (!strat) return;
-
-    const amountUSDC = parseFloat(document.getElementById('inputTradeAmountUSDC').value || 0);
-    const currentPriceText = document.getElementById('current-price-val').innerText.split(' ')[0];
-    const currentPrice = parseFloat(currentPriceText) || 0;
-    const leverage = parseInt(document.getElementById('inputLeverage').value || 20);
-    const devRaw = parseFloat(document.getElementById('trailingDeviation').value || 0);
-    const deviationAbs = Math.abs(devRaw);
-    const direction = strat.direction;
-
-    // Quantity used for ROI
-    const totalQty = (amountUSDC * leverage) / (currentPrice || 1);
-
-    // Using Estimated Peak if provided, otherwise simulating peak as current price
-    const estPeakRaw = document.getElementById('inputEstimatedPeak')?.value;
-    const peakPrice = parseFloat(estPeakRaw) > 0 ? parseFloat(estPeakRaw) : currentPrice;
-
-    let triggerPrice;
-    let profitMoney;
-
-    // Note: We use the "Planned" entry price here for ROI calculation in the calculator
-    // In live trade, it's relative to actual Fill
-    const entryPrice = parseFloat(document.getElementById('inputEntryPrice').value || currentPrice);
-
-    if (direction === 'LONG') {
-        triggerPrice = peakPrice * (1 - (deviationAbs / 100));
-        profitMoney = (triggerPrice - entryPrice) * totalQty;
-    } else {
-        triggerPrice = peakPrice * (1 + (deviationAbs / 100));
-        profitMoney = (entryPrice - triggerPrice) * totalQty;
-    }
-
-    const priceMovePct = ((triggerPrice - entryPrice) / (entryPrice || 1)) * 100 * (direction === 'LONG' ? 1 : -1);
-    const roe = priceMovePct * leverage;
-
-    const moneyEl = document.getElementById('label-approx-profit-money');
-    const pctEl = document.getElementById('label-approx-profit-pct');
-    const roeEl = document.getElementById('label-approx-profit-roe');
-    const valContainer = document.getElementById('approx-profit-val');
-
-    const prefix = profitMoney >= 0 ? '+' : '';
-    moneyEl.innerText = `${prefix}$${profitMoney.toFixed(2)}`;
-    pctEl.innerText = `${prefix}${priceMovePct.toFixed(2)}%`;
-    roeEl.innerText = `(ROE: ${prefix}${roe.toFixed(2)}%)`;
-
-    valContainer.className = profitMoney >= 0 ? 'fw-bold text-success fs-5' : 'fw-bold text-danger fs-5';
-}
-
-function applyTranslations() {
-    const t = translations[currentLang];
-    for (const [id, text] of Object.entries(t)) {
-        const el = document.getElementById(id);
-        if (el) {
-            if (id.startsWith('th-') || id === 'msg-no-positions' || id.startsWith('lc-')) {
-                el.innerText = text;
-            } else if (id === 'nav-title') {
-                el.innerText = text;
-            } else if (id.startsWith('label-') || id.startsWith('btn-') || id.startsWith('tab-') || id === 'manual-pos-title') {
-                el.innerText = text;
-            }
-        }
-    }
-
-    // Update Margin Type Dropdown options
-    const marginSelect = document.getElementById('inputMarginType');
-    if (marginSelect) {
-        marginSelect.options[0].text = t['margin-crossed'];
-        marginSelect.options[1].text = t['margin-isolated'];
-    }
-
-    // Update Clear Console button
-    const clearBtn = document.getElementById('clearConsoleBtn');
-    if (clearBtn) {
-        clearBtn.innerHTML = `<i class="bi bi-trash"></i> ${t['btn-clear-console']}`;
-    }
-    // Specific updates
-    const titleTag = document.getElementById('title-tag');
-    if (titleTag) titleTag.innerText = t['nav-title'];
-    const botStatus = document.getElementById('botStatus');
-    if (botStatus) {
-        botStatus.innerText = isBotRunning ? t['botStatus-Running'] : t['botStatus-Stopped'];
-    }
-    const startBtnText = document.querySelector('#startStopBtn span');
-    if (startBtnText) {
-        startBtnText.innerText = isBotRunning ? t['btn-stop-text'] : t['btn-start-text'];
-    }
-}
-
-function setupSocketListeners() {
-    socket.on('bot_status', (data) => {
-        isBotRunning = data.running;
-        setBtnLoading(false);
-        applyTranslations();
-        const btn = document.getElementById('startStopBtn');
-        if (isBotRunning) {
-            btn.innerHTML = `<i class="bi bi-stop-fill"></i> <span>${translations[currentLang]['btn-stop-text']}</span> <div class="spinner-border spinner-border-sm d-none" role="status" id="btn-spinner"></div>`;
-            btn.className = 'btn btn-sm btn-danger d-flex align-items-center gap-1';
-        } else {
-            btn.innerHTML = `<i class="bi bi-play-fill"></i> <span>${translations[currentLang]['btn-start-text']}</span> <div class="spinner-border spinner-border-sm d-none" role="status" id="btn-spinner"></div>`;
-            btn.className = 'btn btn-sm btn-accent d-flex align-items-center gap-1';
-        }
-    });
-    socket.on('price_update', (prices) => {
-        // console.log("Price sync update:", Object.keys(prices).length, "symbols");
-
-        // If config is loaded but activeSymbol not set, pick the first one
-        if (!activeSymbol && currentConfig && currentConfig.symbols && currentConfig.symbols.length > 0) {
-            activeSymbol = currentConfig.symbols[0];
-            console.log("Selected activeSymbol from config:", activeSymbol);
-        }
-
-        // If still no activeSymbol, fallback to the first symbol in the price map
-        if (!activeSymbol) {
-            const available = Object.keys(prices);
-            if (available.length > 0) {
-                activeSymbol = available[0];
-                // console.log("Fallback activeSymbol from prices:", activeSymbol);
-            } else return;
-        }
-
-        const currentPrice = prices[activeSymbol];
-        if (currentPrice !== undefined) {
-            let quote = activeSymbol.endsWith('USDC') ? 'USDC' : (activeSymbol.endsWith('BTC') ? 'BTC' : 'ETH');
-            const priceEl = document.getElementById('current-price-val');
-            if (priceEl) priceEl.innerText = `${currentPrice.toFixed(4)} ${quote}`;
-
-            const inputAmount = document.getElementById('inputTradeAmountUSDC');
-            if (inputAmount) inputAmount.setAttribute('placeholder', `Price: ${currentPrice.toFixed(4)}`);
-
-            updateTotalBaseUnits();
-            updateTrailingMetrics();
-        }
-    });
-
-    socket.on('max_leverages', (data) => {
-        maxLeverages = { ...maxLeverages, ...data };
-        if (activeSymbol && maxLeverages[activeSymbol]) {
-            const maxL = maxLeverages[activeSymbol];
-            const slider = document.getElementById('inputLeverage');
-            slider.max = maxL;
-
-            if (parseInt(slider.value) > maxL) {
-                slider.value = maxL;
-                updateLeverageDisplay(maxL);
-            }
-            updateLeverageMarks(maxL);
-        }
-    });
-
-    socket.on('account_update', (data) => {
-        document.getElementById('balanceDisplay').textContent = `$${Number(data.total_equity || 0).toFixed(2)}`;
-
-        // Render individual accounts
-        const accountsContainer = document.getElementById('individual-accounts-container');
-        if (accountsContainer && data.accounts) {
-            accountsContainer.innerHTML = data.accounts.map(acc => `
-                <div class="px-3 py-2 border-bottom border-secondary d-flex justify-content-between align-items-center bg-tertiary-hover">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="account-dot ${acc.active ? 'bg-success' : 'bg-secondary'}"></div>
-                        <span class="small text-light">${acc.name}</span>
-                    </div>
-                    <span class="small fw-bold text-accent">$${acc.balance.toFixed(2)}</span>
-                </div>
-            `).join('');
-        }
-
-        const positionsTable = document.getElementById('positionsTableBody');
-        const posToRender = data.positions || [];
-
-        // Update displaySymbol for the active selection
-        const activePos = posToRender.find(p => p.symbol === activeSymbol) ||
-            (data.manual_positions || []).find(p => p.symbol === activeSymbol);
-
-        if (activePos) {
-            const side = activePos.amount > 0 ? 'LONG' : (activePos.amount < 0 ? 'SHORT' : '');
-            document.getElementById('displaySymbol').innerText = `${side} ${Math.abs(activePos.amount)} ${activeSymbol}`;
-            document.getElementById('displaySymbol').className = activePos.amount > 0 ? 'text-success fw-bold text-center mb-2' : (activePos.amount < 0 ? 'text-danger fw-bold text-center mb-2' : 'text-accent fw-bold text-center mb-2');
-        } else {
-            document.getElementById('displaySymbol').innerText = `NONE 0.0000000 ${activeSymbol}`;
-            document.getElementById('displaySymbol').className = 'text-accent fw-bold text-center mb-2';
-        }
-
-        if (posToRender.length > 0) {
-            positionsTable.innerHTML = posToRender.map(p => `
-                <tr class="${p.is_manual ? 'opacity-75' : ''}">
-                    <td>${p.account}${p.is_manual ? ' <span class="badge bg-secondary ms-1" style="font-size:0.65em;">Manual</span>' : ''}</td>
-                    <td class="fw-bold">${p.symbol}</td>
-                    <td class="${p.amount > 0 ? 'text-success' : 'text-danger'}">${p.amount}</td>
-                    <td>${Number(p.entryPrice).toFixed(4)}</td>
-                    <td class="${p.unrealizedProfit >= 0 ? 'text-success' : 'text-danger'} fw-bold">${Number(p.unrealizedProfit).toFixed(2)}</td>
-                    <td><button class="btn btn-xs btn-outline-danger" onclick="closePosition('${p.account}', '${p.symbol}')">${translations[currentLang]['btn-close']}</button></td>
-                </tr>
-            `).join('');
-        } else {
-            positionsTable.innerHTML = `<tr><td colspan="6" class="text-center py-5 text-secondary">${translations[currentLang]['msg-no-positions']}</td></tr>`;
-        }
-
-        // Handle Manual Positions
-        const manualContainer = document.getElementById('manual-position-container');
-        const useExisting = document.getElementById('useExistingAssets').checked;
-        const myManualPos = (data.manual_positions || []).find(p => p.symbol === activeSymbol);
-
-        if (useExisting && myManualPos) {
-            manualContainer.classList.remove('d-none');
-            document.getElementById('manual-pos-badge').innerText = activeSymbol;
-            document.getElementById('manual-pos-size').innerText = myManualPos.amount;
-            document.getElementById('manual-pos-entry').innerText = Number(myManualPos.entryPrice).toFixed(4);
-        } else {
-            manualContainer.classList.add('d-none');
-        }
-    });
-
-    socket.on('console_log', (data) => {
-        const consoleOutput = document.getElementById('consoleOutput');
-        const line = document.createElement('div');
-        line.className = 'small mb-1';
-        line.innerHTML = `<span class="text-secondary">[${data.timestamp}]</span> <span class="${data.level === 'error' ? 'text-danger' : (data.level === 'warning' ? 'text-warning' : 'text-success')}">${data.message}</span>`;
-        consoleOutput.appendChild(line);
-        consoleOutput.scrollTop = consoleOutput.scrollHeight;
-    });
 }
 
 async function loadConfig() {
     const res = await fetch('/api/config');
     currentConfig = await res.json();
-    currentLang = currentConfig.language || 'pt-BR';
+    initSymbolPicker();
+    currentLang = currentConfig.language || 'en-US';
     document.getElementById('lang-select').value = currentLang;
+    applyUiTranslations();
     updateUIFromConfig();
-    applyTranslations();
+}
+
+function applyUiTranslations() {
+    const ui = (allTranslations[currentLang] || {}).ui || {};
+    for (const [key, text] of Object.entries(ui)) {
+        const el = document.getElementById(`label-${key}`);
+        if (el) el.innerText = text;
+
+        // Custom handling for placeholders
+        if (key === 'settings_add_symbol_placeholder') {
+            const elInp = document.getElementById('newSymbolInput');
+            if (elInp) elInp.placeholder = text;
+        }
+    }
 }
 
 function updateUIFromConfig() {
-    if (!currentConfig) return;
+    if (!activeSymbol || !currentConfig) return;
+    const strat = currentConfig.symbol_strategies[activeSymbol] || {};
 
-    // Initialize activeSymbol if not set
-    if (!activeSymbol && currentConfig.symbols && currentConfig.symbols.length > 0) {
-        activeSymbol = currentConfig.symbols[0];
+    const isPct = strat.trade_amount_is_pct || false;
+    document.getElementById('selectTradeAmountMode').value = isPct ? 'pct' : 'fixed';
+    document.getElementById('inputTradeAmountUSDC').value = strat.trade_amount_usdc || 100;
+    document.getElementById('asset-symbol-label').classList.toggle('d-none', isPct);
+    document.getElementById('pct-symbol-label').classList.toggle('d-none', !isPct);
+
+    document.getElementById('inputEntryPrice').value = strat.entry_price || 0;
+
+    const entryType = strat.entry_type || 'LIMIT';
+    updateOrderTypeUI(entryType);
+
+    const tpOn = strat.tp_enabled !== false;
+    document.getElementById('tpToggle').checked = tpOn;
+    // Explicitly toggle overlay visibility
+    const tpOverlay = document.getElementById('tp-overlay');
+    if (tpOn) tpOverlay.classList.add('d-none');
+    else tpOverlay.classList.remove('d-none');
+    const tpMarket = strat.tp_market_mode || false;
+    document.querySelectorAll('#tp-type-tabs .pillar-tab').forEach(t => t.classList.toggle('active', (t.dataset.type === 'MARKET') === tpMarket));
+
+    if (typeof renderTpTargets === 'function') renderTpTargets();
+
+    const slOn = strat.stop_loss_enabled || false;
+    document.getElementById('stopLossToggle').checked = slOn;
+
+    const trailingTpOn = strat.trailing_tp_enabled || false;
+    document.getElementById('trailingTpToggle').checked = trailingTpOn;
+    document.getElementById('trailing-params').classList.toggle('d-none', !trailingTpOn);
+    document.getElementById('trailingDeviation').value = strat.trailing_deviation || 0.5;
+    document.getElementById('trailing-deviation-label').innerText = `${strat.trailing_deviation || 0.5}%`;
+
+    const slPriceEl = document.getElementById('stopLossPrice');
+    if (slPriceEl) {
+        slPriceEl.value = strat.stop_loss_price || 0;
+        updateInternalPct('sl', strat.stop_loss_price || 0);
     }
 
-    // Populate Symbol Picker
+    const slTimeoutToggle = document.getElementById('slTimeoutToggle');
+    if (slTimeoutToggle) slTimeoutToggle.checked = strat.sl_timeout_enabled || false;
+
+    const slTimeoutControls = document.getElementById('sl-timeout-controls');
+    if (slTimeoutControls) slTimeoutControls.classList.toggle('d-none', !strat.sl_timeout_enabled);
+
+    const slTimeoutDuration = document.getElementById('slTimeoutDuration');
+    if (slTimeoutDuration) slTimeoutDuration.value = strat.sl_timeout_duration || 300;
+
+    const slType = strat.sl_type || 'COND_LIMIT';
+    document.querySelectorAll('#sl-type-tabs .pillar-tab').forEach(t => t.classList.toggle('active', t.dataset.type === slType));
+
+    const slOrderPriceGroup = document.getElementById('sl-order-price-group');
+    if (slOrderPriceGroup) slOrderPriceGroup.classList.toggle('d-none', slType === 'COND_MARKET');
+
+    if (strat.sl_trigger_source) {
+        const btn = document.getElementById('slTriggerSourceBtn');
+        if (btn) btn.innerText = strat.sl_trigger_source;
+    }
+
+    const slOrderPrice = strat.sl_order_price || strat.stop_loss_price || 0;
+    const slOrderPriceInput = document.getElementById('slOrderPrice');
+    if (slOrderPriceInput) {
+        slOrderPriceInput.value = slOrderPrice;
+        updateInternalPct('sl-order', slOrderPrice);
+    }
+
+    const trailingSlToggle = document.getElementById('trailingSlToggle');
+    if (trailingSlToggle) trailingSlToggle.checked = strat.trailing_sl_enabled || false;
+
+    const moveToBreakevenToggle = document.getElementById('moveToBreakevenToggle');
+    if (moveToBreakevenToggle) moveToBreakevenToggle.checked = strat.move_to_breakeven || false;
+
+    const useExistingToggle = document.getElementById('useExistingToggle');
+    if (useExistingToggle) useExistingToggle.checked = strat.use_existing || false;
+
+    const consolidatedOn = strat.consolidated_reentry || false;
+    document.getElementById('consolidatedReentryToggle').checked = consolidatedOn;
+
+    const trailingBuyToggle = document.getElementById('trailingBuyToggle');
+    if (trailingBuyToggle) trailingBuyToggle.checked = strat.trailing_buy_enabled || false;
+
+    const tbSettings = document.getElementById('trailing-buy-settings');
+    if (tbSettings) tbSettings.classList.toggle('d-none', !strat.trailing_buy_enabled);
+
+    const tbd = document.getElementById('trailingBuyDeviation');
+    if (tbd) tbd.value = strat.trailing_buy_deviation || 0.1;
+
+    if (typeof renderTpTargets === 'function') renderTpTargets();
+    updateTotalBaseUnits();
+}
+
+
+function updateOrderTypeUI(type) {
+    const descEl = document.getElementById('order-type-desc');
+    const condOptions = document.getElementById('cond-options');
+    const priceInputGroup = document.getElementById('inputEntryPrice').closest('.mb-2');
+    const triggerLabel = document.getElementById('label-trigger_price_field');
+    const ui = (allTranslations[currentLang] || {}).ui || {};
+
+    // Default visibility
+    condOptions.classList.add('d-none');
+    priceInputGroup.classList.remove('d-none');
+
+    if (['LIMIT', 'MARKET', 'CONDITIONAL'].includes(type)) {
+        document.querySelectorAll('#buy-type-tabs .pillar-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
+    } else {
+        document.querySelectorAll('#buy-type-tabs .pillar-tab').forEach(t => t.classList.toggle('active', t.dataset.type === 'CONDITIONAL'));
+        condOptions.classList.remove('d-none');
+        document.querySelectorAll('#cond-type-tabs .pillar-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
+    }
+
+    switch (type) {
+        case 'LIMIT': descEl.innerText = ui.desc_limit; break;
+        case 'MARKET':
+            descEl.innerText = ui.desc_market;
+            priceInputGroup.classList.add('d-none');
+            break;
+        case 'CONDITIONAL':
+            descEl.innerText = ui.desc_conditional;
+            condOptions.classList.remove('d-none');
+            break;
+        case 'COND_LIMIT':
+            descEl.innerText = ui.desc_cond_limit;
+            condOptions.classList.remove('d-none');
+            break;
+        case 'COND_MARKET':
+            descEl.innerText = ui.desc_cond_market;
+            condOptions.classList.remove('d-none');
+            priceInputGroup.classList.add('d-none');
+            break;
+    }
+}
+
+function initSymbolPicker() {
     const select = document.getElementById('selectActiveSymbol');
-    if (select) {
-        select.innerHTML = currentConfig.symbols.map(s => `<option value="${s}" ${s === activeSymbol ? 'selected' : ''}>${s}</option>`).join('');
+    select.innerHTML = currentConfig.symbols.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (currentConfig.symbols.length > 0) {
+        activeSymbol = currentConfig.symbols[0];
+        const unit = 'USDC';
+        const labels = ['asset-symbol-label', 'base-asset-label', 'entry-price-asset-label', 'tp-price-asset-label', 'sl-price-asset-label', 'sl-order-price-asset-label'];
+        labels.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = unit;
+        });
     }
+}
 
-    const strat = currentConfig.symbol_strategies[activeSymbol];
-    if (strat) {
-        document.getElementById('displaySymbol').innerHTML = `${strat.direction} ${strat.trade_amount_usdc} ${activeSymbol}`;
-        document.getElementById('inputTradeAmountUSDC').value = strat.trade_amount_usdc || 100;
 
-        const slider = document.getElementById('inputLeverage');
-        const maxL = maxLeverages[activeSymbol] || 125;
-        slider.max = maxL;
 
-        let lev = strat.leverage || 20;
-        if (lev > maxL) lev = maxL;
-        slider.value = lev;
 
-        updateLeverageDisplay(lev);
-        updateLeverageMarks(maxL);
 
-        // Update Leverage Presets based on Max Leverage
-        const presetContainer = document.getElementById('leverage-presets');
-        if (presetContainer && presetContainer.children.length === 5) {
-            // Keep 1x, 10x, 20x, 50x if they are under or equal to maxL, otherwise hide them.
-            // Make the 5th button the "Max" button.
-            Array.from(presetContainer.children).forEach((btn, idx) => {
-                if (idx < 4) {
-                    const presetVal = parseInt(btn.innerText);
-                    if (presetVal > maxL) {
-                        btn.style.display = 'none';
-                    } else {
-                        btn.style.display = 'inline-block';
-                    }
-                } else {
-                    // 5th button becomes the Max Leverage button
-                    btn.style.display = 'inline-block';
-                    btn.innerText = `${maxL}x`;
-                    btn.setAttribute('onclick', `setLeverage(${maxL})`);
-                }
-            });
+function setupSocketListeners() {
+    socket.on('bot_status', (data) => {
+        isBotRunning = data.running;
+        const btn = document.getElementById('startStopBtn');
+        const spinner = document.getElementById('startStopSpinner');
+        const label = document.getElementById('label-start') || document.getElementById('label-stop');
+
+        btn.disabled = false;
+        if (spinner) spinner.classList.add('d-none');
+
+        const ui = (allTranslations[currentLang] || {}).ui || {};
+        const text = isBotRunning ? (ui.stop || 'Stop') : (ui.start || 'Start');
+
+        if (label) {
+            label.innerText = text;
+            label.id = isBotRunning ? 'label-stop' : 'label-start';
+        } else {
+            btn.innerText = text; // Fallback
         }
 
-        document.getElementById('trailingDeviation').value = strat.trailing_deviation || 0;
-        document.getElementById('trailingTpToggle').checked = strat.trailing_enabled || false;
-        document.getElementById('tpToggle').checked = strat.tp_enabled !== false; // Default true
+        btn.className = isBotRunning ? 'btn btn-sm btn-danger px-4 d-flex align-items-center gap-2' : 'btn btn-sm btn-accent px-4 d-flex align-items-center gap-2';
+    });
 
-        document.getElementById('inputMarginType').value = strat.margin_type || 'CROSSED';
-        document.getElementById('inputEntryPrice').value = strat.entry_price || 0;
-        document.getElementById('useExistingAssets').checked = strat.use_existing_assets !== false; // Default true
+    socket.on('price_update', (prices) => {
+        if (activeSymbol && prices[activeSymbol]) {
+            const p = prices[activeSymbol];
+            // p should be {bid, ask, last}, handle fallbacks
+            const bid = p.bid !== undefined ? p.bid : p.last || p;
+            const ask = p.ask !== undefined ? p.ask : p.last || p;
 
-        document.getElementById('addon-total-units-symbol').innerText = activeSymbol.split('USDC')[0];
+            const bidEl = document.getElementById('bid-price');
+            const askEl = document.getElementById('ask-price');
+            if (bidEl && typeof bid === 'number') bidEl.innerText = bid.toFixed(2);
+            if (askEl && typeof ask === 'number') askEl.innerText = ask.toFixed(2);
 
-        updateTotalBaseUnits();
-        updateTPGrid();
-        updateTrailingMetrics();
-    }
+            updateTotalBaseUnits();
+        }
+    });
 
-    document.getElementById('demoBadge').textContent = currentConfig.is_demo ? 'Demo' : 'Live';
-    document.getElementById('demoBadge').className = currentConfig.is_demo ? 'badge bg-info ms-1 status-badge' : 'badge bg-danger ms-1 status-badge';
+    socket.on('clear_console', () => {
+        const out = document.getElementById('consoleOutput');
+        if (out) out.innerHTML = '';
+    });
 
-    updateSymbolList();
-}
-
-function closePosition(account, symbol) {
-    const confirmMsg = translations[currentLang]['confirm-close'].replace('{symbol}', symbol).replace('{account}', account);
-    if (confirm(confirmMsg)) {
-        socket.emit('close_trade', { account, symbol });
-    }
-}
-
-function updateSymbolList() {
-    const list = document.getElementById('symbolList');
-    list.innerHTML = currentConfig.symbols.map(s => `
-        <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent border-secondary text-light py-2">
-            ${s}
-            <i class="bi bi-trash text-danger cursor-pointer" onclick="removeSymbol('${s}')" style="cursor:pointer"></i>
-        </li>
-    `).join('');
-    document.getElementById('activeAccountsDisplay').textContent = currentConfig.api_accounts.filter(a => a.enabled).length;
-}
-
-function removeSymbol(symbol) {
-    currentConfig.symbols = currentConfig.symbols.filter(s => s !== symbol);
-    updateSymbolList();
-    saveLiveConfig();
-}
-
-function updateTPGrid() {
-    if (!currentConfig || !activeSymbol) return;
-    const strat = currentConfig.symbol_strategies[activeSymbol];
-    if (!strat) return;
-
-    const fractions = parseInt(strat.total_fractions || 8);
-    const deviation = parseFloat(strat.price_deviation || 0.6);
-    const fractionPct = (100 / fractions).toFixed(2);
-
-    let html = '';
-    for (let i = 1; i <= fractions; i++) {
-        const devPct = (i * deviation).toFixed(2);
-        html += `
-            <div class="tp-grid-row">
-                <span class="text-accent">${devPct}%</span>
-                <span>${fractionPct}%</span>
-                <span class="text-secondary"><i class="bi bi-link-45deg"></i></span>
+    socket.on('account_update', (data) => {
+        const container = document.getElementById('individual-accounts-container');
+        container.innerHTML = (data.accounts || []).map(acc => `
+            <div class="account-card ${acc.has_client ? '' : 'opacity-50'}" style="min-width: 150px">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="small fw-bold text-secondary text-uppercase">${acc.name}</span>
+                    <div class="account-dot ${acc.active ? 'bg-success' : 'bg-secondary'}" style="width:6px; height:6px; border-radius:50%"></div>
+                </div>
+                <span class="text-primary fw-bold">${acc.has_client && acc.balance !== undefined ? '$' + acc.balance.toFixed(2) : 'Disconnected'}</span>
             </div>
-        `;
-    }
-    document.getElementById('tpGridContainer').innerHTML = html;
+        `).join('');
+
+        currentBalance = data.total_equity || 0;
+        const totalEquityVal = document.getElementById('total-equity-val');
+        if (totalEquityVal) totalEquityVal.innerText = `$${currentBalance.toFixed(2)}`;
+
+        const posTable = document.getElementById('positionsTableBody');
+        posTable.innerHTML = (data.positions || []).map(p => `
+            <tr class="border-0">
+                <td>${p.account}</td>
+                <td>${p.symbol}</td>
+                <td class="${p.amount > 0 ? 'text-success' : 'text-danger'}">${p.amount}</td>
+                <td>${(parseFloat(p.entryPrice) || 0).toFixed(2)}</td>
+                <td class="${p.unrealizedProfit >= 0 ? 'text-success' : 'text-danger'}">${(parseFloat(p.unrealizedProfit) || 0).toFixed(2)}</td>
+                <td><button class="btn btn-xs btn-outline-danger py-0" onclick="closePosition(${p.account_idx}, '${p.symbol}')">Kill</button></td>
+            </tr>
+        `).join('');
+    });
+
+    socket.on('console_log', (data) => {
+        const out = document.getElementById('consoleOutput');
+        const div = document.createElement('div');
+        div.className = `small mb-1 console-entry ${data.level === 'error' ? 'text-danger' : 'text-success'}`;
+        // data.rendered is pre-rendered on backend but if we changed language
+        // we might get the whole history or just updates.
+        div.innerText = `[${data.timestamp}] ${data.rendered || data.message}`;
+        out.appendChild(div);
+        out.scrollTop = out.scrollHeight;
+    });
 }
 
-function renderConfig() {
-    const accContainer = document.getElementById('accountConfigs');
-    accContainer.innerHTML = currentConfig.api_accounts.map((acc, i) => `
-        <div class="mb-3 p-3 border border-secondary rounded bg-tertiary">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <span class="fw-bold">Account: ${acc.name}</span>
-                <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" id="acc_enabled_${i}" ${acc.enabled ? 'checked' : ''}>
-                    <label class="form-check-label small">Enabled</label>
-                </div>
+function populateSettingsModal() {
+    if (!currentConfig) return;
+    document.getElementById('demoModeToggle').checked = currentConfig.is_demo || false;
+
+    // Global Settings (from first symbol or defaults)
+    const firstSym = currentConfig.symbols[0];
+    const currentLev = firstSym ? (currentConfig.symbol_strategies[firstSym]?.leverage || 20) : 20;
+    const currentDir = firstSym ? (currentConfig.symbol_strategies[firstSym]?.direction || 'LONG') : 'LONG';
+    const currentMargin = firstSym ? (currentConfig.symbol_strategies[firstSym]?.margin_type || 'CROSSED') : 'CROSSED';
+
+    document.getElementById('globalLeverageInput').value = currentLev;
+    document.getElementById('globalDirectionSelect').value = currentDir;
+    document.getElementById('globalMarginModeSelect').value = currentMargin;
+
+    // Accounts
+    const accContainer = document.getElementById('api-accounts-settings');
+    const ui = (allTranslations[currentLang] || {}).ui || {};
+
+    accContainer.innerHTML = (currentConfig.api_accounts || []).map((acc, i) => `
+        <div class="row g-2 mb-2 align-items-center account-setting-row" data-idx="${i}">
+            <div class="col-2"><input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="${ui.acc_name_placeholder || 'Name'}" value="${acc.name || ''}" id="acc-name-${i}"></div>
+            <div class="col-3"><input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="${ui.acc_key_placeholder || 'Key'}" value="${acc.api_key || ''}" id="acc-key-${i}"></div>
+            <div class="col-3"><input type="password" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="${ui.acc_secret_placeholder || 'Secret'}" value="${acc.api_secret || ''}" id="acc-secret-${i}"></div>
+            <div class="col-2 text-center">
+                <button class="btn btn-xs btn-outline-info" onclick="testApiKey(${i})" id="test-btn-${i}">${ui.settings_test_btn || 'Test'}</button>
             </div>
-            <div class="row g-2">
-                <div class="col-12">
-                    <label class="small text-secondary">API Key</label>
-                    <input type="text" class="form-control" id="acc_key_${i}" value="${acc.api_key}">
-                </div>
-                <div class="col-12">
-                    <label class="small text-secondary">API Secret</label>
-                    <input type="password" class="form-control" id="acc_secret_${i}" value="${acc.api_secret}">
-                </div>
-                <div class="col-12 text-end mt-2">
-                    <button class="btn btn-xs btn-outline-info" onclick="testAccount(${i})">Test Connection</button>
+            <div class="col-2 text-end">
+                <div class="form-check form-switch d-inline-block">
+                    <input class="form-check-input" type="checkbox" id="acc-enabled-${i}" ${acc.enabled !== false ? 'checked' : ''}>
                 </div>
             </div>
         </div>
     `).join('');
 
-    document.getElementById('configIsDemo').checked = currentConfig.is_demo;
-
-    // For simplicity, modal edits the current active symbol's strategy
-    const strat = currentConfig.symbol_strategies[activeSymbol];
-    if (strat) {
-        document.getElementById('configDirection').value = strat.direction || 'LONG';
-        document.getElementById('configTotalQty').value = strat.trade_amount_usdc || 100;
-        document.getElementById('configFractions').value = strat.total_fractions || 8;
-        document.getElementById('configDeviation').value = strat.price_deviation || 0.6;
-    }
+    renderSymbolsInModal();
 }
 
-async function testAccount(index) {
-    const api_key = document.getElementById(`acc_key_${index}`).value;
-    const api_secret = document.getElementById(`acc_secret_${index}`).value;
+function renderSymbolsInModal() {
+    const list = document.getElementById('symbols-list');
+    list.innerHTML = currentConfig.symbols.map(s => `
+        <div class="badge bg-secondary d-flex align-items-center gap-2 p-2">
+            ${s}
+            <i class="bi bi-x-circle cursor-pointer text-danger" onclick="removeSymbol('${s}')"></i>
+        </div>
+    `).join('');
+}
 
-    if (!api_key || !api_secret) {
-        alert("Enter API credentials");
+window.removeSymbol = (sym) => {
+    currentConfig.symbols = currentConfig.symbols.filter(s => s !== sym);
+    renderSymbolsInModal();
+};
+
+async function saveSettingsFromModal() {
+    const isDemo = document.getElementById('demoModeToggle').checked;
+
+    // Accounts
+    const api_accounts = [];
+    document.querySelectorAll('.account-setting-row').forEach(row => {
+        const i = row.dataset.idx;
+        api_accounts.push({
+            name: document.getElementById(`acc-name-${i}`).value,
+            api_key: document.getElementById(`acc-key-${i}`).value,
+            api_secret: document.getElementById(`acc-secret-${i}`).value,
+            enabled: document.getElementById(`acc-enabled-${i}`).checked
+        });
+    });
+
+    currentConfig.is_demo = isDemo;
+    currentConfig.api_accounts = api_accounts;
+
+    // Apply Global Settings to all symbols
+    const globalLeverage = parseInt(document.getElementById('globalLeverageInput').value) || 20;
+    const globalDirection = document.getElementById('globalDirectionSelect').value;
+    const globalMarginMode = document.getElementById('globalMarginModeSelect').value;
+
+    for (const sym in currentConfig.symbol_strategies) {
+        currentConfig.symbol_strategies[sym].leverage = globalLeverage;
+        currentConfig.symbol_strategies[sym].direction = globalDirection;
+        currentConfig.symbol_strategies[sym].margin_type = globalMarginMode;
+    }
+
+    await saveLiveConfig();
+}
+
+async function saveLiveConfig(extra = {}) {
+    if (!currentConfig) return;
+    const payload = { ...currentConfig, ...extra };
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+}
+
+window.testApiKey = async (i) => {
+    const key = document.getElementById(`acc-key-${i}`).value;
+    const secret = document.getElementById(`acc-secret-${i}`).value;
+    const isDemo = document.getElementById('demoModeToggle').checked;
+    const btn = document.getElementById(`test-btn-${i}`);
+
+    if (!key || !secret) {
+        alert("Please enter API key and secret");
         return;
     }
 
-    const res = await fetch('/api/test_api_key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key, api_secret })
-    });
-    const data = await res.json();
-    alert(data.message);
-}
+    btn.disabled = true;
+    const oldText = btn.innerText;
+    btn.innerText = "...";
 
-async function saveConfig() {
-    const api_accounts = currentConfig.api_accounts.map((acc, i) => ({
-        name: acc.name,
-        enabled: document.getElementById(`acc_enabled_${i}`).checked,
-        api_key: document.getElementById(`acc_key_${i}`).value,
-        api_secret: document.getElementById(`acc_secret_${i}`).value
-    }));
-
-    const config = {
-        ...currentConfig,
-        api_accounts,
-        is_demo: document.getElementById('configIsDemo').checked,
-        language: currentLang,
-        symbols: currentConfig.symbols,
-        symbol_strategies: { ...currentConfig.symbol_strategies }
-    };
-
-    // Apply strategy settings to the currently active symbol
-    if (activeSymbol) {
-        config.symbol_strategies[activeSymbol] = {
-            ...(config.symbol_strategies[activeSymbol] || {}),
-            direction: document.getElementById('configDirection').value,
-            trade_amount_usdc: parseFloat(document.getElementById('configTotalQty').value) || 0,
-            total_fractions: parseInt(document.getElementById('configFractions').value) || 8,
-            price_deviation: parseFloat(document.getElementById('configDeviation').value) || 0.6
-        };
+    try {
+        const res = await fetch('/api/test_api_key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: key, api_secret: secret, is_demo: isDemo })
+        });
+        const data = await res.json();
+        alert(data.message);
+    } catch (e) {
+        alert("Error testing API key: " + e);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = oldText;
     }
-
-    const res = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
-    });
-
-    if (res.ok) {
-        currentConfig = config;
-        updateUIFromConfig();
-        configModal.hide();
-    } else {
-        const err = await res.json().catch(() => ({}));
-        alert('Failed to save: ' + (err.message || res.status));
-    }
-}
-
-window.setLeverage = function (val) {
-    const slider = document.getElementById('inputLeverage');
-    const maxL = parseInt(slider.max) || 125;
-    const target = Math.min(val, maxL);
-    slider.value = target;
-    updateLeverageDisplay(target);
-    if (currentConfig && activeSymbol) {
-        currentConfig.symbol_strategies[activeSymbol].leverage = parseInt(target);
-        saveLiveConfig();
-    }
-    updateTotalBaseUnits();
 };
 
-window.setDeviation = function (val) {
-    const slider = document.getElementById('trailingDeviation');
-    slider.value = val;
-    const label = translations[currentLang]['label-dev'];
-    document.getElementById('label-approx-profit').innerText = `${label} ${val}%`;
-    if (currentConfig && activeSymbol) {
-        currentConfig.symbol_strategies[activeSymbol].trailing_deviation = parseFloat(val);
-        saveLiveConfig();
-    }
-    updateTrailingMetrics();
-};
+window.closePosition = (account_idx, symbol) => { socket.emit('close_trade', { account_idx, symbol }); };
 
-function updateLeverageMarks(maxL) {
-    const marksContainer = document.querySelector('.leverage-marks');
-    if (!marksContainer) return;
+// TP Split Management
+function renderTpTargets() {
+    if (!activeSymbol || !currentConfig) return;
+    const strat = currentConfig.symbol_strategies[activeSymbol] || {};
+    const targets = strat.tp_targets || [];
+    const container = document.getElementById('tp-targets-list');
+    const entryPrice = parseFloat(document.getElementById('inputEntryPrice').value) || 0;
+    const unit = 'USDC';
+    const direction = strat.direction || 'LONG';
 
-    // Dynamic marks: Min (1), 25%, 50%, 75%, Max
-    const values = [1];
-    if (maxL > 4) values.push(Math.round(maxL * 0.25));
-    if (maxL > 2) values.push(Math.round(maxL * 0.5));
-    if (maxL > 1.5) values.push(Math.round(maxL * 0.75));
-    if (!values.includes(maxL)) values.push(maxL);
-
-    // De-duplicate and sort
-    const uniqueValues = [...new Set(values)].sort((a, b) => a - b);
-
-    marksContainer.innerHTML = uniqueValues.map((v, i) => {
-        const left = ((v - 1) / (maxL - 1)) * 100;
-        // Only show a label if it's not too close to the previous one
-        // Minimum 15% distance between labels
-        if (i > 0) {
-            const prevV = uniqueValues[i - 1];
-            const prevLeft = ((prevV - 1) / (maxL - 1)) * 100;
-            if (left - prevLeft < 15 && v !== maxL) return '';
-        }
-        return `<span style="left: ${left}%; transform: translateX(-50%);">${v}x</span>`;
+    container.innerHTML = targets.map((target, i) => {
+        const pct = parseFloat(target.percent) || 0;
+        const price = direction === 'LONG' ? entryPrice * (1 + pct / 100) : entryPrice * (1 - pct / 100);
+        return `
+            <div class="tp-target-row mb-3 p-3 rounded bg-dark-accent border border-secondary shadow-sm" data-idx="${i}">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="small text-secondary fw-bold">Target ${i + 1}</label>
+                    <button class="btn btn-link btn-sm p-0 text-danger border-0" onclick="removeTpTarget(${i})">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                </div>
+                <div class="input-group input-group-sm mb-3">
+                    <input type="number" class="form-control bg-dark border-secondary text-light fw-bold" 
+                        value="${target.percent}" step="0.1" 
+                        onchange="updateTpTarget(${i}, 'percent', this.value)">
+                    <span class="input-group-text bg-dark border-secondary text-secondary">%</span>
+                    <span class="input-group-text bg-transparent border-0 text-accent fw-bold ms-auto">${price.toFixed(5)} ${unit}</span>
+                </div>
+                <div class="small d-flex justify-content-between text-secondary mb-1">
+                    <span>Volume</span>
+                    <span class="fw-bold text-light">${target.volume}%</span>
+                </div>
+                <input type="range" class="form-range custom-range" min="1" max="100" 
+                    value="${target.volume}" 
+                    oninput="updateTpTarget(${i}, 'volume', this.value)">
+            </div>
+        `;
     }).join('');
 }
 
-function setBtnLoading(isLoading) {
-    const btn = document.getElementById('startStopBtn');
-    const spinner = document.getElementById('btn-spinner');
-    if (isLoading) {
-        btn.classList.add('disabled');
-        spinner.classList.remove('d-none');
-    } else {
-        btn.classList.remove('disabled');
-        spinner.classList.add('d-none');
-    }
-}
+window.addTpTarget = () => {
+    if (!activeSymbol) return;
+    if (!currentConfig.symbol_strategies[activeSymbol]) currentConfig.symbol_strategies[activeSymbol] = {};
+    const strat = currentConfig.symbol_strategies[activeSymbol];
+    if (!strat.tp_targets) strat.tp_targets = [];
 
-async function saveLiveConfig() {
-    await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentConfig)
-    });
-}
+    // Default: split volume evenly among targets if possible, or just add 25%
+    const lastPct = strat.tp_targets.length > 0 ? parseFloat(strat.tp_targets[strat.tp_targets.length - 1].percent) : 0;
+    strat.tp_targets.push({ percent: (lastPct + 1).toFixed(2), volume: 25 });
+    renderTpTargets();
+    saveLiveConfig();
+};
+
+window.removeTpTarget = (idx) => {
+    const strat = currentConfig.symbol_strategies[activeSymbol];
+    strat.tp_targets.splice(idx, 1);
+    renderTpTargets();
+    saveLiveConfig();
+};
+
+window.updateTpTarget = (idx, field, value) => {
+    const strat = currentConfig.symbol_strategies[activeSymbol];
+    strat.tp_targets[idx][field] = value;
+    renderTpTargets();
+    saveLiveConfig();
+};
+
+document.getElementById('addTpTargetBtn').addEventListener('click', () => {
+    window.addTpTarget();
+});
+
+window.setSlTriggerSource = (source) => {
+    document.getElementById('slTriggerSourceBtn').innerText = source;
+    updateStrategyField('sl_trigger_source', source);
+};
+
+
